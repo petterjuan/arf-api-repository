@@ -31,7 +31,6 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application
 COPY src/ ./src/
-COPY pyproject.toml ./
 
 # Create non-root user
 RUN useradd -m -u 1000 arf && chown -R arf:arf /app
