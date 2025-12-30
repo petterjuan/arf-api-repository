@@ -1,0 +1,22 @@
+# FastAPI + ASGI server
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# Pydantic for data validation
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Database clients (optional - for future use)
+# asyncpg==0.29.0
+# redis==5.0.1
+# neo4j==5.14.0
+
+# HTTP client
+httpx==0.25.1
+
+# Environment management
+python-dotenv==1.0.0
+
+# Security (optional - for future auth)
+# python-jose[cryptography]==3.3.0
+# passlib[bcrypt]==1.7.4
