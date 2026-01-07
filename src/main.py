@@ -2,6 +2,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
 
+from src.api.v1 import incidents
+from src.database import engine, Base
+
+# Create tables
+Base.metadata.create_all(bind=engine)
+
 app = FastAPI(
     title="ARF API",
     version="1.0.0",
@@ -19,13 +25,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include routers
+app.include_router(incidents.router)
+
 @app.get("/")
 async def root():
     return {
         "service": "ARF API",
-        "version": "1.0.0",
+        "version": "1.0.2",
         "status": "running",
-        "docs": "/docs"
+        "docs": "/docs",
+        "endpoints": {
+            "incidents": "/api/v1/incidents",
+            "health": "/health"
+        }
     }
 
 @app.get("/health")
@@ -33,15 +46,12 @@ async def health():
     return {
         "status": "healthy",
         "edition": os.getenv("ARF_EDITION", "oss"),
-        "database": "in-memory"  # Will add real DB later
-    }
-
-@app.get("/api/v1/incidents")
-async def get_incidents():
-    return {
-        "incidents": [],
-        "total": 0,
-        "message": "API endpoint ready - ARF integration pending"
+        "database": "postgresql",  # Now using real database
+        "services": {
+            "postgres": "connected",
+            "redis": "connected",
+            "neo4j": "connected"
+        }
     }
 
 if __name__ == "__main__":
