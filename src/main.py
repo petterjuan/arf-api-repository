@@ -1,8 +1,10 @@
+# src/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
 
-from src.api.v1 import incidents
+# FIX: Import the router directly
+from src.api.v1.incidents import router as incidents_router
 from src.database import engine, Base
 
 # Create tables
@@ -25,8 +27,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
-app.include_router(incidents.router)
+# FIX: Use the imported router
+app.include_router(incidents_router)
 
 @app.get("/")
 async def root():
