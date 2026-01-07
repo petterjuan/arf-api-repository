@@ -1,9 +1,12 @@
+# src/api/v1/incidents.py - COMPLETE FIXED VERSION
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, asc
 from typing import List, Optional
 import redis
 from datetime import datetime, timedelta
+import json  # FIX: Added missing import
+import uuid  # For generating IDs
 
 from src.database import get_db
 from src.database.redis_client import get_redis
@@ -46,18 +49,18 @@ async def get_incidents(
     # Try cache first
     cached = redis_client.get(cache_key)
     if cached:
-        return IncidentListResponse.parse_raw(cached)
+        return IncidentListResponse.model_validate_json(cached)  # FIX: Changed from parse_raw
     
     # Build query
     query = db.query(IncidentDB)
     
     # Apply filters
     if severity:
-        query = query.filter(IncidentDB.severity == severity)
+        query = query.filter(IncidentDB.severity == severity.value)  # FIX: Use .value
     if status:
-        query = query.filter(IncidentDB.status == status)
+        query = query.filter(IncidentDB.status == status.value)      # FIX: Use .value
     if incident_type:
-        query = query.filter(IncidentDB.incident_type == incident_type)
+        query = query.filter(IncidentDB.incident_type == incident_type.value)  # FIX: Use .value
     if agent_id:
         query = query.filter(IncidentDB.agent_id == agent_id)
     if start_date:
@@ -88,7 +91,7 @@ async def get_incidents(
     )
     
     # Cache response
-    redis_client.setex(cache_key, CACHE_TTL, response.json())
+    redis_client.setex(cache_key, CACHE_TTL, response.model_dump_json())  # FIX: Changed from .json()
     
     return response
 
@@ -106,7 +109,7 @@ async def get_incident(
     # Try cache first
     cached = redis_client.get(cache_key)
     if cached:
-        return IncidentResponse.parse_raw(cached)
+        return IncidentResponse.model_validate_json(cached)  # FIX: Changed from parse_raw
     
     # Query database
     incident = db.query(IncidentDB).filter(IncidentDB.id == incident_id).first()
@@ -114,9 +117,10 @@ async def get_incident(
         raise HTTPException(status_code=404, detail="Incident not found")
     
     # Cache response
-    redis_client.setex(cache_key, CACHE_TTL, IncidentResponse.from_orm(incident).json())
+    incident_response = IncidentResponse.model_validate(incident)  # FIX: Changed from from_orm
+    redis_client.setex(cache_key, CACHE_TTL, incident_response.model_dump_json())  # FIX: Changed from .json()
     
-    return incident
+    return incident_response
 
 @router.post("/", response_model=IncidentResponse, status_code=status.HTTP_201_CREATED)
 async def create_incident(
@@ -127,8 +131,13 @@ async def create_incident(
     """
     Create a new incident
     """
+    # Generate ID if not provided
+    incident_dict = incident_data.model_dump()
+    if 'id' not in incident_dict or not incident_dict['id']:
+        incident_dict['id'] = str(uuid.uuid4())
+    
     # Create incident in database
-    db_incident = IncidentDB(**incident_data.dict())
+    db_incident = IncidentDB(**incident_dict)
     db.add(db_incident)
     db.commit()
     db.refresh(db_incident)
@@ -137,6 +146,9 @@ async def create_incident(
     cache_pattern = "api:incidents:list:*"
     for key in redis_client.scan_iter(cache_pattern):
         redis_client.delete(key)
+    
+    # Also invalidate stats cache
+    redis_client.delete("api:incidents:stats:summary")
     
     return db_incident
 
@@ -156,7 +168,7 @@ async def update_incident(
         raise HTTPException(status_code=404, detail="Incident not found")
     
     # Update fields
-    update_data = incident_data.dict(exclude_unset=True)
+    update_data = incident_data.model_dump(exclude_unset=True)  # FIX: Changed from dict()
     for field, value in update_data.items():
         setattr(incident, field, value)
     
@@ -175,6 +187,7 @@ async def update_incident(
     cache_pattern = "api:incidents:list:*"
     for key in redis_client.scan_iter(cache_pattern):
         redis_client.delete(key)
+    redis_client.delete("api:incidents:stats:summary")
     
     return incident
 
@@ -192,7 +205,7 @@ async def delete_incident(
         raise HTTPException(status_code=404, detail="Incident not found")
     
     # Soft delete - mark as closed
-    incident.status = IncidentStatus.CLOSED
+    incident.status = IncidentStatus.CLOSED.value  # FIX: Use .value
     incident.updated_at = datetime.utcnow()
     
     db.commit()
@@ -202,6 +215,7 @@ async def delete_incident(
     cache_pattern = "api:incidents:list:*"
     for key in redis_client.scan_iter(cache_pattern):
         redis_client.delete(key)
+    redis_client.delete("api:incidents:stats:summary")
 
 @router.get("/stats/summary")
 async def get_incident_stats(
@@ -224,19 +238,19 @@ async def get_incident_stats(
     # By severity
     severity_stats = {}
     for severity in IncidentSeverity:
-        count = db.query(IncidentDB).filter(IncidentDB.severity == severity).count()
+        count = db.query(IncidentDB).filter(IncidentDB.severity == severity.value).count()  # FIX: Use .value
         severity_stats[severity.value] = count
     
     # By status
     status_stats = {}
     for status in IncidentStatus:
-        count = db.query(IncidentDB).filter(IncidentDB.status == status).count()
+        count = db.query(IncidentDB).filter(IncidentDB.status == status.value).count()  # FIX: Use .value
         status_stats[status.value] = count
     
     # By type
     type_stats = {}
     for incident_type in IncidentType:
-        count = db.query(IncidentDB).filter(IncidentDB.incident_type == incident_type).count()
+        count = db.query(IncidentDB).filter(IncidentDB.incident_type == incident_type.value).count()  # FIX: Use .value
         type_stats[incident_type.value] = count
     
     # Last 24 hours
@@ -244,7 +258,7 @@ async def get_incident_stats(
     recent_count = db.query(IncidentDB).filter(IncidentDB.created_at >= last_24h).count()
     
     # Open incidents
-    open_count = db.query(IncidentDB).filter(IncidentDB.status == IncidentStatus.OPEN).count()
+    open_count = db.query(IncidentDB).filter(IncidentDB.status == IncidentStatus.OPEN.value).count()  # FIX: Use .value
     
     stats = {
         "total": total,
