@@ -19,5 +19,14 @@ neo4j>=5.14.0
 # Async
 anyio>=4.0.0
 
+# Form data support (required for FastAPI)
+python-multipart>=0.0.6
+
+# JSON handling improvements
+orjson>=3.9.0
+
 # Monitoring (optional)
 prometheus-fastapi-instrumentator>=5.10.0
+
+# UUID support
+uuid>=1.30
