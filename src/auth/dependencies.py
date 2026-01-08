@@ -7,6 +7,7 @@ from fastapi import Depends, HTTPException, status, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, OAuth2PasswordBearer
 from typing import Optional, List
 from sqlalchemy.orm import Session
+from sqlalchemy import func  # FIX: Added missing import
 
 from src.database import get_db
 from src.auth.models import (
