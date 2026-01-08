@@ -30,3 +30,16 @@ prometheus-fastapi-instrumentator>=5.10.0
 
 # UUID support
 uuid>=1.30
+
+# Graph algorithms and utilities
+networkx>=3.0  # For graph analysis
+python-igraph>=0.10  # Optional: advanced graph algorithms
+
+# UUID handling improvements
+uuid>=1.30
+
+# JSON serialization for complex objects
+orjson>=3.9.0
+
+# Environment configuration
+pydantic-settings>=2.0.0  # For structured settings management
