@@ -235,4 +235,86 @@ async def update_incident(
         redis_client.delete(key)
     
     cache_pattern = "api:incidents:list:*"
-   
+    for key in redis_client.scan_iter(cache_pattern):
+        redis_client.delete(key)
+    
+    return incident
+
+@router.delete("/{incident_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_incident(
+    incident_id: str,
+    db: Session = Depends(get_db),
+    redis_client: redis.Redis = Depends(get_redis),
+    current_user: UserDB = Depends(require_admin)  # Changed: Requires admin role
+):
+    """
+    Delete an incident (soft delete via status change).
+    Authentication: Required
+    Authorization: Admin role or higher
+    """
+    incident = db.query(IncidentDB).filter(IncidentDB.id == incident_id).first()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    
+    # Soft delete - mark as closed
+    incident.status = IncidentStatus.CLOSED.value
+    incident.updated_at = datetime.utcnow()
+    
+    # Add deleted_by metadata
+    incident.metadata = incident.metadata or {}
+    incident.metadata['deleted_by'] = current_user.email
+    incident.metadata['deleted_at'] = datetime.utcnow().isoformat()
+    
+    db.commit()
+    
+    # Invalidate caches
+    cache_pattern = f"api:incidents:*{incident_id}*"
+    for key in redis_client.scan_iter(cache_pattern):
+        redis_client.delete(key)
+    
+    cache_pattern = "api:incidents:list:*"
+    for key in redis_client.scan_iter(cache_pattern):
+        redis_client.delete(key)
+
+# Add admin-only endpoints
+@router.get("/admin/export", dependencies=[Depends(require_admin)])
+async def export_incidents(
+    db: Session = Depends(get_db),
+    format: str = Query("json", regex="^(json|csv)$")
+):
+    """
+    Export all incidents (admin only).
+    Authentication: Required
+    Authorization: Admin role or higher
+    """
+    incidents = db.query(IncidentDB).all()
+    
+    if format == "csv":
+        # Generate CSV
+        import io
+        import csv
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write header
+        writer.writerow(["ID", "Title", "Severity", "Status", "Created At", "Agent ID"])
+        
+        # Write data
+        for incident in incidents:
+            writer.writerow([
+                incident.id,
+                incident.title,
+                incident.severity,
+                incident.status,
+                incident.created_at.isoformat(),
+                incident.agent_id or ""
+            ])
+        
+        return {
+            "content": output.getvalue(),
+            "filename": f"incidents_export_{datetime.utcnow().date()}.csv",
+            "content_type": "text/csv"
+        }
+    
+    return {"incidents": incidents, "total": len(incidents)}
