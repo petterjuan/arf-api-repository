@@ -1,50 +1,69 @@
+# ============================================================================
+# CORE DEPENDENCIES
+# ============================================================================
+
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 pydantic>=2.5.0
 python-dotenv>=1.0.0
 httpx>=0.25.0
 
-# Database
+# ============================================================================
+# DATABASE DEPENDENCIES
+# ============================================================================
+
 sqlalchemy>=2.0.0
 asyncpg>=0.29.0
 alembic>=1.13.0
 psycopg2-binary>=2.9.0
 
-# Cache
+# ============================================================================
+# CACHE DEPENDENCIES
+# ============================================================================
+
 redis>=5.0.0
 
-# Graph database
+# ============================================================================
+# GRAPH DATABASE DEPENDENCIES
+# ============================================================================
+
 neo4j>=5.14.0
 
-# Async
+# ============================================================================
+# ASYNC DEPENDENCIES
+# ============================================================================
+
 anyio>=4.0.0
 
-# Form data support (required for FastAPI)
+# ============================================================================
+# FORM DATA SUPPORT
+# ============================================================================
+
 python-multipart>=0.0.6
 
-# JSON handling improvements
+# ============================================================================
+# JSON HANDLING
+# ============================================================================
+
 orjson>=3.9.0
 
-# Monitoring (optional)
-prometheus-fastapi-instrumentator>=5.10.0
+# ============================================================================
+# UUID SUPPORT
+# ============================================================================
 
-# UUID support
 uuid>=1.30
 
-# Graph algorithms and utilities
+# ============================================================================
+# GRAPH ALGORITHMS (Optional - for execution ladder)
+# ============================================================================
+
 networkx>=3.0  # For graph analysis
-python-igraph>=0.10  # Optional: advanced graph algorithms
 
-# UUID handling improvements
-uuid>=1.30
+# ============================================================================
+# SETTINGS MANAGEMENT
+# ============================================================================
 
-# JSON serialization for complex objects
-orjson>=3.9.0
-
-# Environment configuration
 pydantic-settings>=2.0.0  # For structured settings management
-
-# Add to existing requirements.txt:
 
 # ============================================================================
 # MONITORING & OBSERVABILITY
@@ -52,25 +71,52 @@ pydantic-settings>=2.0.0  # For structured settings management
 
 # Prometheus metrics
 prometheus-client>=0.17.0
-prometheus-fastapi-instrumentator>=5.10.0
+# prometheus-fastapi-instrumentator>=5.10.0  # Temporarily removed - causing issues
 
 # Structured logging
 structlog>=23.0.0
 python-json-logger>=2.0.0
 
-# OpenTelemetry (distributed tracing)
+# OpenTelemetry (distributed tracing) - Optional for production
 opentelemetry-api>=1.20.0
 opentelemetry-sdk>=1.20.0
 opentelemetry-instrumentation-fastapi>=0.41b0
 opentelemetry-instrumentation-sqlalchemy>=0.41b0
-opentelemetry-exporter-prometheus>=0.41b0
+opentelemetry-exporter-prometheus>=0.60b0  # Fixed version
 
-# Performance profiling
+# Performance profiling (Optional)
 pyinstrument>=4.0.0
 memory-profiler>=0.60.0
 
-# Health checks
-healthcheck>=2.0.0
+# Health checks - FIXED VERSION
+healthcheck>=1.3.0  # Changed from 2.0.0 to 1.3.0
 
 # System metrics
 psutil>=5.9.0
+
+# ============================================================================
+# DEVELOPMENT DEPENDENCIES (Optional)
+# ============================================================================
+
+# Testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+httpx>=0.25.0
+
+# Code quality
+black>=23.0.0
+isort>=5.12.0
+flake8>=6.0.0
+mypy>=1.0.0
+
+# Documentation
+mkdocs>=1.4.0
+mkdocs-material>=9.0.0
+
+# ============================================================================
+# SECURITY DEPENDENCIES (Optional)
+# ============================================================================
+
+# cryptography>=41.0.0  # For enhanced security
+# python-jose[cryptography]>=3.3.0  # For JWT
+# passlib[bcrypt]>=1.7.4  # Already included in auth models
