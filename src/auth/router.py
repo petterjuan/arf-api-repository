@@ -6,7 +6,9 @@ Intention: Provide full authentication lifecycle management.
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from typing import List
+from sqlalchemy import func  # FIX: Added missing import
+from typing import List, Optional  # FIX: Added Optional import
+from datetime import timedelta  # FIX: Added timedelta import
 import uuid
 
 from src.database import get_db
@@ -18,7 +20,11 @@ from src.auth.models import (
     decode_token, SECRET_KEY
 )
 from src.auth.database_models import UserDB, APIKeyDB, RefreshTokenDB
-from src.auth.dependencies import AuthError
+from src.auth.dependencies import (
+    AuthError,  # FIX: Added dependency imports
+    require_viewer, require_operator, require_admin,
+    require_super_admin
+)
 
 router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
 
