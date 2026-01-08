@@ -1,13 +1,14 @@
 """
-Main application with authentication, execution ladder, and rollback integrated.
-Psychology: Unified reliability platform with progressive enhancement.
-Intention: Comprehensive system for incident prevention, management, and recovery.
+Main application with authentication, execution ladder, rollback, and monitoring integrated.
+Psychology: Unified reliability platform with progressive enhancement and comprehensive observability.
+Intention: Complete system for incident prevention, management, recovery, and observability.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 import os
 from datetime import datetime
+import logging
 
 from src.api.v1 import incidents
 from src.auth.router import router as auth_router
@@ -15,17 +16,26 @@ from src.api.v1.execution_ladder import router as execution_ladder_router
 from src.api.v1.rollback import router as rollback_router
 from src.database import engine, Base
 from src.auth.database_models import UserDB, APIKeyDB, RefreshTokenDB
-# Add to imports section:
-from src.monitoring import setup_monitoring, BusinessMetrics
+
+# Import monitoring components
+from src.monitoring import setup_monitoring, BusinessMetrics, DatabaseMonitor, PerformanceMonitor
 from src.middleware.logging import StructuredLoggingMiddleware, BusinessEventLogger
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 # Create all tables
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="ARF API",
-    version="1.2.0",  # Updated version for rollback feature
-    description="""Agentic Reliability Framework API - Complete System Reliability Platform
+    version="1.3.0",  # Updated version for monitoring feature
+    description="""Agentic Reliability Framework API - Complete System Reliability Platform with Observability
     
 ## 🔥 Core Reliability Features:
 
@@ -33,12 +43,14 @@ app = FastAPI(
 - JWT-based authentication with refresh tokens
 - API key support for machine-to-machine communication  
 - Role-based access control (RBAC): viewer → operator → admin → super_admin
+- OAuth2 password flow support
 
 ### 🚨 **Incident Management**  
 - Comprehensive incident tracking and management
 - Real-time statistics and reporting dashboard
 - Advanced filtering, pagination, and search
 - Multi-service impact analysis
+- Incident timeline and root cause analysis
 
 ### 🪜 **Execution Ladder** (Policy-based Decision Making)
 - Graph-based policy management with Neo4j
@@ -46,13 +58,25 @@ app = FastAPI(
 - Real-time policy evaluation and decision tracing
 - Visual execution path analysis and optimization
 - Conditional policy chains with weighted outcomes
+- Policy dependency mapping
 
-### 🔄 **Rollback Capabilities** (NEW)
+### 🔄 **Rollback Capabilities** (System Recovery)
 - Transactional action logging with immutable audit trails
 - Multi-strategy rollback: inverse action, state restore, compensating actions
 - Dependency-aware bulk rollback operations
 - Risk assessment and feasibility analysis
 - Comprehensive rollback dashboard and analytics
+- Automated rollback verification
+
+### 📊 **Monitoring & Observability** (NEW)
+- Prometheus metrics endpoint (`/metrics`)
+- Structured JSON logging with correlation IDs
+- Comprehensive health checks with readiness/liveness probes
+- Performance monitoring (p50, p95, p99 latencies)
+- Business metrics tracking (incidents, policies, rollbacks)
+- Database and cache performance metrics
+- Grafana dashboard integration
+- Alertmanager integration for notifications
 
 ### 🛡️ **Security & Compliance**
 - CORS protection with configurable origins
@@ -60,6 +84,8 @@ app = FastAPI(
 - Input validation and sanitization
 - Audit logging for all critical operations
 - GDPR-ready data handling
+- Rate limiting (coming soon)
+- IP whitelisting (coming soon)
 
 ## 🏗️ **System Architecture:**
 - **PostgreSQL**: Primary data store for incidents, users, and rollback logs
@@ -67,18 +93,24 @@ app = FastAPI(
 - **Redis**: Caching layer for performance + rollback action storage
 - **FastAPI**: Modern, fast API framework with async support
 - **Docker**: Containerized deployment with health checks
+- **Prometheus**: Metrics collection and alerting
+- **Grafana**: Visualization and dashboarding
+- **Loki**: Log aggregation and querying
 
-## 📊 **Monitoring & Observability:**
-- Comprehensive health checks for all services
-- Performance metrics and request tracing
-- Structured logging with correlation IDs
-- Real-time dashboard for system status
+## 📈 **Business Value:**
+- **Prevention**: Proactive policy enforcement via execution ladder
+- **Detection**: Real-time incident monitoring and alerting
+- **Response**: Efficient incident management and collaboration
+- **Recovery**: Reliable rollback capabilities for system restoration
+- **Improvement**: Data-driven insights from comprehensive metrics
 
 ## 🔧 **Development & Deployment:**
 - Complete CI/CD pipeline with GitHub Actions
-- Docker Compose for local development
+- Docker Compose for local development and production
 - Railway.app ready configuration
 - Environment-based configuration management
+- Multi-stage Docker builds
+- Health checks and graceful shutdown
 """,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -98,6 +130,10 @@ app = FastAPI(
         {
             "name": "rollback",
             "description": "Rollback capabilities and system recovery operations"
+        },
+        {
+            "name": "monitoring",
+            "description": "Monitoring, metrics, and observability endpoints"
         }
     ],
     contact={
@@ -118,8 +154,19 @@ app = FastAPI(
         {
             "url": "https://arf-api.example.com",
             "description": "Production server"
+        },
+        {
+            "url": "https://staging.arf-api.example.com",
+            "description": "Staging server"
         }
-    ]
+    ],
+    # API metadata
+    terms_of_service="https://arf.example.com/terms/",
+    # External documentation
+    external_docs={
+        "description": "ARF API Documentation",
+        "url": "https://docs.arf.example.com",
+    }
 )
 
 # Security middleware
@@ -129,6 +176,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID", "X-Response-Time", "X-Total-Count"]
 )
 
 # Trusted hosts middleware (production only)
@@ -138,24 +186,57 @@ if os.getenv("ENVIRONMENT") == "production":
         allowed_hosts=os.getenv("ALLOWED_HOSTS", "*").split(",")
     )
 
+# Add structured logging middleware
+app.add_middleware(StructuredLoggingMiddleware)
+
+# Setup comprehensive monitoring
+app = setup_monitoring(app)
+
+# Initialize performance monitor
+performance_monitor = PerformanceMonitor()
+app.state.performance_monitor = performance_monitor
+
 # Include all routers
 app.include_router(auth_router)
 app.include_router(incidents.router)
 app.include_router(execution_ladder_router)
 app.include_router(rollback_router)
 
+# ============================================================================
+# ROOT ENDPOINTS
+# ============================================================================
+
 @app.get("/")
 async def root():
     """Root endpoint with comprehensive service information"""
+    from src.database.redis_client import redis_client
+    
+    # Get basic system info
+    try:
+        redis_info = redis_client.info()
+        redis_memory = redis_info.get('used_memory_human', 'unknown')
+    except:
+        redis_memory = 'unknown'
+    
+    # Get service status
+    services_status = {
+        "postgresql": "unknown",
+        "redis": "unknown",
+        "neo4j": "unknown"
+    }
+    
     return {
         "service": "ARF API",
-        "version": "1.2.0",
+        "version": "1.3.0",
         "status": "running",
+        "environment": os.getenv("ENVIRONMENT", "development"),
+        "edition": os.getenv("ARF_EDITION", "oss"),
         "architecture": {
             "authentication": "enabled",
             "incident_management": "enabled", 
             "execution_ladder": "enabled",
             "rollback_capabilities": "enabled",
+            "monitoring_observability": "enabled",
             "databases": {
                 "primary": "postgresql",
                 "graph": "neo4j",
@@ -164,26 +245,52 @@ async def root():
         },
         "capabilities": {
             "prevention": "Execution ladder policies",
-            "detection": "Incident monitoring",
-            "response": "Incident management",
-            "recovery": "Rollback operations"
+            "detection": "Incident monitoring + metrics",
+            "response": "Incident management + alerting",
+            "recovery": "Rollback operations",
+            "observability": "Metrics, logs, tracing"
+        },
+        "resources": {
+            "redis_memory": redis_memory,
+            "startup_time": app.state.start_time.isoformat() if hasattr(app.state, 'start_time') else "unknown"
         },
         "documentation": {
             "swagger_ui": "/docs",
             "redoc": "/redoc",
-            "openapi_spec": "/openapi.json"
+            "openapi_spec": "/openapi.json",
+            "metrics": "/metrics",
+            "openmetrics": "/metrics/openmetrics"
         },
         "endpoints": {
             "authentication": "/api/v1/auth",
             "incidents": "/api/v1/incidents", 
             "execution_ladder": "/api/v1/execution-ladder",
             "rollback": "/api/v1/rollback",
-            "health": "/health",
-            "detailed_health": "/health/detailed",
-            "api_info": "/api/info"
+            "health": {
+                "basic": "/health",
+                "detailed": "/health/detailed",
+                "advanced": "/health/advanced",
+                "readiness": "/health/readiness",
+                "liveness": "/health/liveness"
+            },
+            "monitoring": {
+                "metrics": "/metrics",
+                "openmetrics": "/metrics/openmetrics",
+                "performance": "/monitoring/performance"
+            },
+            "api_info": "/api/info",
+            "system_status": "/status"
         },
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat(),
+        "uptime_seconds": (
+            (datetime.utcnow() - app.state.start_time).total_seconds() 
+            if hasattr(app.state, 'start_time') else 0
+        )
     }
+
+# ============================================================================
+# HEALTH ENDPOINTS
+# ============================================================================
 
 @app.get("/health")
 async def health():
@@ -191,19 +298,19 @@ async def health():
     return {
         "status": "healthy",
         "edition": os.getenv("ARF_EDITION", "oss"),
-        "version": "1.2.0",
+        "version": "1.3.0",
         "features": {
             "authentication": "enabled",
             "incident_management": "enabled",
             "execution_ladder": "enabled",
-            "rollback": "enabled"
+            "rollback": "enabled",
+            "monitoring": "enabled"
         },
         "services": {
             "postgres": "connected",
             "redis": "connected", 
             "neo4j": "connected"
         },
-        "uptime": "0:00:00",  # Would calculate from startup time
         "timestamp": datetime.utcnow().isoformat()
     }
 
@@ -225,12 +332,14 @@ async def detailed_health():
     try:
         start = datetime.utcnow()
         with engine.connect() as conn:
-            result = conn.execute(text("SELECT 1"))
+            result = conn.execute(text("SELECT 1 as healthy, version() as version"))
+            row = result.fetchone()
             latency = (datetime.utcnow() - start).total_seconds() * 1000
             health_status["services"]["postgresql"] = {
-                "status": "connected",
+                "status": "healthy" if row.healthy == 1 else "degraded",
                 "latency_ms": round(latency, 2),
-                "version": "unknown"  # Would get actual version
+                "version": row.version,
+                "connection_count": 0  # Would get from pg_stat_activity
             }
     except Exception as e:
         health_status["status"] = "degraded"
@@ -245,10 +354,16 @@ async def detailed_health():
         start = datetime.utcnow()
         redis_client.ping()
         latency = (datetime.utcnow() - start).total_seconds() * 1000
+        
+        info = redis_client.info()
+        
         health_status["services"]["redis"] = {
-            "status": "connected",
+            "status": "healthy",
             "latency_ms": round(latency, 2),
-            "memory_used": "unknown"  # Would get Redis info
+            "version": info.get('redis_version'),
+            "used_memory": info.get('used_memory_human'),
+            "connected_clients": info.get('connected_clients'),
+            "memory_fragmentation_ratio": info.get('mem_fragmentation_ratio')
         }
     except Exception as e:
         health_status["status"] = "degraded"
@@ -261,17 +376,17 @@ async def detailed_health():
     # Check Neo4j
     try:
         start = datetime.utcnow()
-        with neo4j_driver.session() as session:
-            result = session.run("RETURN 1 as test, version() as neo4j_version")
+        driver = neo4j_driver
+        with driver.session() as session:
+            result = session.run("RETURN 1 as healthy, version() as version")
             record = result.single()
-            test_value = record["test"]
-            neo4j_version = record["neo4j_version"]
             latency = (datetime.utcnow() - start).total_seconds() * 1000
             
             health_status["services"]["neo4j"] = {
-                "status": "connected" if test_value == 1 else "degraded",
+                "status": "healthy" if record["healthy"] == 1 else "degraded",
                 "latency_ms": round(latency, 2),
-                "version": neo4j_version
+                "version": record["version"],
+                "node_count": 0  # Would count nodes
             }
     except Exception as e:
         health_status["status"] = "degraded"
@@ -322,73 +437,234 @@ async def detailed_health():
             "error": str(e)
         }
     
+    # Check monitoring
+    try:
+        # Get performance report
+        perf_report = performance_monitor.get_performance_report()
+        health_status["features"]["monitoring"] = {
+            "status": "operational",
+            "endpoints_monitored": len(perf_report.get("endpoints", {})),
+            "performance_data_points": sum(
+                len(app.state.performance_monitor.metrics["endpoint_latency"].get(endpoint, []))
+                for endpoint in app.state.performance_monitor.metrics["endpoint_latency"]
+            )
+        }
+    except Exception as e:
+        health_status["features"]["monitoring"] = {
+            "status": "degraded",
+            "error": str(e)
+        }
+    
     return health_status
 
-# Legacy endpoint for backward compatibility (will be deprecated)
-@app.get("/api/v1/incidents/unsecured", include_in_schema=False)
-async def get_incidents_unsecured():
-    """Legacy unsecured endpoint (for migration period)"""
+@app.get("/health/readiness")
+async def readiness_probe():
+    """Kubernetes readiness probe - check critical dependencies"""
+    from src.database.redis_client import redis_client
+    from src.database.neo4j_client import driver as neo4j_driver
+    from sqlalchemy import text
+    
+    checks = []
+    
+    # Check PostgreSQL
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        checks.append({"service": "postgresql", "status": "ready"})
+    except Exception as e:
+        checks.append({"service": "postgresql", "status": "not_ready", "error": str(e)})
+    
+    # Check Redis
+    try:
+        redis_client.ping()
+        checks.append({"service": "redis", "status": "ready"})
+    except Exception as e:
+        checks.append({"service": "redis", "status": "not_ready", "error": str(e)})
+    
+    # Check Neo4j
+    try:
+        with neo4j_driver.session() as session:
+            session.run("RETURN 1")
+        checks.append({"service": "neo4j", "status": "ready"})
+    except Exception as e:
+        checks.append({"service": "neo4j", "status": "not_ready", "error": str(e)})
+    
+    # Determine overall status
+    all_ready = all(check["status"] == "ready" for check in checks)
+    
     return {
-        "message": "This endpoint is deprecated. Use authenticated endpoints.",
-        "redirect": "/api/v1/incidents",
-        "deprecation_warning": "This endpoint will be removed in v2.0.0",
-        "alternative": "/api/v1/incidents with authentication"
+        "status": "ready" if all_ready else "not_ready",
+        "timestamp": datetime.utcnow().isoformat(),
+        "checks": checks
     }
 
-# API information endpoint
+@app.get("/health/liveness")
+async def liveness_probe():
+    """Kubernetes liveness probe - check application is alive"""
+    return {
+        "status": "alive",
+        "timestamp": datetime.utcnow().isoformat(),
+        "uptime_seconds": (
+            (datetime.utcnow() - app.state.start_time).total_seconds() 
+            if hasattr(app.state, 'start_time') else 0
+        )
+    }
+
+# ============================================================================
+# MONITORING ENDPOINTS
+# ============================================================================
+
+@app.get("/monitoring/performance")
+async def get_performance_report():
+    """Get performance monitoring report"""
+    report = performance_monitor.get_performance_report()
+    
+    # Add system info
+    import psutil
+    report["system"] = {
+        "cpu_percent": psutil.cpu_percent(interval=1),
+        "memory_percent": psutil.virtual_memory().percent,
+        "disk_usage": psutil.disk_usage('/').percent,
+        "active_connections": len(psutil.net_connections())
+    }
+    
+    return report
+
+@app.get("/monitoring/metrics/summary")
+async def get_metrics_summary():
+    """Get metrics summary for dashboard"""
+    from prometheus_client import REGISTRY
+    import io
+    
+    # Collect metrics data
+    output = io.StringIO()
+    for metric in REGISTRY.collect():
+        output.write(f"# HELP {metric.name} {metric.documentation}\n")
+        output.write(f"# TYPE {metric.name} {metric.type}\n")
+        for sample in metric.samples:
+            labels = ','.join(f'{k}="{v}"' for k, v in sample.labels.items()) if sample.labels else ''
+            if labels:
+                output.write(f'{sample.name}{{{labels}}} {sample.value}\n')
+            else:
+                output.write(f'{sample.name} {sample.value}\n')
+    
+    metrics_text = output.getvalue()
+    
+    # Parse for summary (simplified)
+    summary = {
+        "total_metrics": len(list(REGISTRY.collect())),
+        "http_metrics": 0,
+        "business_metrics": 0,
+        "system_metrics": 0,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    
+    for line in metrics_text.split('\n'):
+        if line.startswith('http_'):
+            summary["http_metrics"] += 1
+        elif any(x in line for x in ['incident', 'policy', 'rollback']):
+            summary["business_metrics"] += 1
+        elif any(x in line for x in ['memory', 'cpu', 'disk', 'uptime']):
+            summary["system_metrics"] += 1
+    
+    return summary
+
+# ============================================================================
+# API INFORMATION ENDPOINTS
+# ============================================================================
+
 @app.get("/api/info")
 async def api_info():
     """Get detailed API information and capabilities"""
     return {
         "api": {
             "name": "ARF API",
-            "version": "1.2.0",
+            "version": "1.3.0",
             "description": "Agentic Reliability Framework API",
-            "specification": "OpenAPI 3.0"
+            "specification": "OpenAPI 3.0",
+            "schema_version": "1.0"
         },
         "authentication": {
             "methods": ["JWT", "API Key"],
             "oauth2_flows": ["password"],
             "roles": ["viewer", "operator", "admin", "super_admin"],
-            "scopes": ["read", "write", "admin"]
+            "scopes": ["read", "write", "admin"],
+            "token_expiry": {
+                "access_token": "30 minutes",
+                "refresh_token": "7 days"
+            }
         },
         "modules": {
             "incidents": {
                 "description": "Incident management and tracking",
                 "endpoints": ["/api/v1/incidents"],
-                "features": ["CRUD operations", "filtering", "pagination", "statistics", "export"]
+                "features": ["CRUD operations", "filtering", "pagination", "statistics", "export", "timeline"]
             },
             "execution_ladder": {
                 "description": "Graph-based policy management and evaluation",
                 "endpoints": ["/api/v1/execution-ladder"],
-                "features": ["policy management", "graph operations", "real-time evaluation", "decision tracing", "path analysis"]
+                "features": ["policy management", "graph operations", "real-time evaluation", "decision tracing", "path analysis", "dependency mapping"]
             },
             "rollback": {
                 "description": "System recovery and action reversal",
                 "endpoints": ["/api/v1/rollback"],
-                "features": ["action logging", "rollback execution", "bulk operations", "risk assessment", "audit trails"]
+                "features": ["action logging", "rollback execution", "bulk operations", "risk assessment", "audit trails", "verification"]
+            },
+            "monitoring": {
+                "description": "Observability and metrics",
+                "endpoints": ["/metrics", "/monitoring/*", "/health/*"],
+                "features": ["prometheus metrics", "structured logging", "health checks", "performance monitoring", "business metrics"]
             }
         },
         "database": {
-            "primary": "PostgreSQL",
-            "graph": "Neo4j",
-            "cache": "Redis"
+            "primary": {
+                "type": "PostgreSQL",
+                "version": "15+",
+                "features": ["ACID compliance", "JSONB support", "full-text search"]
+            },
+            "graph": {
+                "type": "Neo4j",
+                "version": "5+",
+                "features": ["Cypher query language", "ACID compliance", "graph algorithms"]
+            },
+            "cache": {
+                "type": "Redis",
+                "version": "7+",
+                "features": ["in-memory data store", "pub/sub", "transactions"]
+            }
         },
         "reliability_patterns": {
-            "prevention": "Execution ladder policies",
-            "detection": "Incident monitoring",
-            "response": "Incident management",
-            "recovery": "Rollback capabilities"
+            "prevention": "Execution ladder policies with conditional evaluation",
+            "detection": "Incident monitoring + real-time metrics + alerting",
+            "response": "Incident management with collaboration tools",
+            "recovery": "Rollback capabilities with verification",
+            "observability": "Three pillars: metrics, logs, traces"
+        },
+        "deployment": {
+            "containerization": "Docker with multi-stage builds",
+            "orchestration": "Docker Compose for development, Kubernetes ready",
+            "ci_cd": "GitHub Actions with automated testing",
+            "monitoring_stack": "Prometheus, Grafana, Loki, Alertmanager"
         },
         "links": {
-            "documentation": "/docs",
+            "documentation": {
+                "swagger": "/docs",
+                "redoc": "/redoc",
+                "openapi": "/openapi.json"
+            },
             "source_code": "https://github.com/petterjuan/arf-api-repository",
             "issue_tracker": "https://github.com/petterjuan/arf-api-repository/issues",
-            "health": "/health"
+            "wiki": "https://github.com/petterjuan/arf-api-repository/wiki",
+            "health": "/health",
+            "metrics": "/metrics"
+        },
+        "support": {
+            "community": "GitHub Discussions",
+            "commercial": "contact@arf.example.com",
+            "sla": "Available for enterprise edition"
         }
     }
 
-# System status endpoint
 @app.get("/status")
 async def system_status():
     """Get comprehensive system status"""
@@ -413,7 +689,8 @@ async def system_status():
         redis_info = {
             "connected_clients": redis_client.info().get('connected_clients', 0),
             "used_memory": redis_client.info().get('used_memory_human', '0'),
-            "uptime": redis_client.info().get('uptime_in_seconds', 0)
+            "uptime": redis_client.info().get('uptime_in_seconds', 0),
+            "total_commands_processed": redis_client.info().get('total_commands_processed', 0)
         }
     except:
         pass
@@ -427,24 +704,127 @@ async def system_status():
     except:
         pass
     
+    # Get performance data
+    perf_report = performance_monitor.get_performance_report()
+    
     return {
         "system": {
-            "version": "1.2.0",
+            "version": "1.3.0",
             "environment": os.getenv("ENVIRONMENT", "development"),
             "edition": os.getenv("ARF_EDITION", "oss"),
-            "uptime": "0:00:00"  # Would calculate from startup
+            "startup_time": app.state.start_time.isoformat() if hasattr(app.state, 'start_time') else "unknown",
+            "uptime_seconds": (
+                (datetime.utcnow() - app.state.start_time).total_seconds() 
+                if hasattr(app.state, 'start_time') else 0
+            )
         },
         "counts": {
             "postgres_incidents": postgres_count,
             "neo4j_nodes": neo4j_count,
             "redis_connections": redis_info.get('connected_clients', 0)
         },
+        "performance": {
+            "endpoints_monitored": len(perf_report.get("endpoints", {})),
+            "average_latency_ms": sum(
+                endpoint.get("p50_latency", 0) * 1000 
+                for endpoint in perf_report.get("endpoints", {}).values()
+            ) / max(len(perf_report.get("endpoints", {})), 1),
+            "total_requests": sum(
+                endpoint.get("request_count", 0)
+                for endpoint in perf_report.get("endpoints", {}).values()
+            )
+        },
         "resources": {
-            "redis_memory": redis_info.get('used_memory', '0'),
-            "redis_uptime": redis_info.get('uptime', 0)
+            "redis": {
+                "memory": redis_info.get('used_memory', '0'),
+                "uptime": redis_info.get('uptime', 0),
+                "commands_processed": redis_info.get('total_commands_processed', 0)
+            }
         },
         "timestamp": datetime.utcnow().isoformat()
     }
+
+# ============================================================================
+# LEGACY ENDPOINTS (Deprecation path)
+# ============================================================================
+
+@app.get("/api/v1/incidents/unsecured", include_in_schema=False)
+async def get_incidents_unsecured():
+    """Legacy unsecured endpoint (for migration period)"""
+    return {
+        "message": "This endpoint is deprecated. Use authenticated endpoints.",
+        "redirect": "/api/v1/incidents",
+        "deprecation_warning": "This endpoint will be removed in v2.0.0",
+        "alternative": "/api/v1/incidents with authentication",
+        "documentation": "/docs#/incidents/get_incidents_incidents__get"
+    }
+
+# ============================================================================
+# APPLICATION LIFECYCLE EVENTS
+# ============================================================================
+
+@app.on_event("startup")
+async def startup_event():
+    """Application startup event"""
+    logger.info(f"""
+    ╔══════════════════════════════════════════════════════════════╗
+    ║                    ARF API v1.3.0 Starting                   ║
+    ╠══════════════════════════════════════════════════════════════╣
+    ║  Environment: {os.getenv('ENVIRONMENT', 'development'):<49} ║
+    ║  Edition: {os.getenv('ARF_EDITION', 'oss'):<52} ║
+    ║  Host: {os.getenv('HOST', '0.0.0.0'):<55} ║
+    ║  Port: {os.getenv('PORT', '8000'):<55} ║
+    ╠══════════════════════════════════════════════════════════════╣
+    ║  Core Features:                                              ║
+    ║    • 🔐 Authentication & Authorization                       ║
+    ║    • 🚨 Incident Management                                  ║
+    ║    • 🪜 Execution Ladder (Policy Engine)                     ║
+    ║    • 🔄 Rollback Capabilities                                ║
+    ║    • 📊 Monitoring & Observability                           ║
+    ╠══════════════════════════════════════════════════════════════╣
+    ║  Documentation:                                              ║
+    ║    • Swagger UI: http://{os.getenv('HOST', '0.0.0.0')}:{os.getenv('PORT', '8000')}/docs ║
+    ║    • ReDoc: http://{os.getenv('HOST', '0.0.0.0')}:{os.getenv('PORT', '8000')}/redoc ║
+    ║    • OpenAPI: http://{os.getenv('HOST', '0.0.0.0')}:{os.getenv('PORT', '8000')}/openapi.json ║
+    ╠══════════════════════════════════════════════════════════════╣
+    ║  Monitoring Endpoints:                                       ║
+    ║    • Prometheus: http://{os.getenv('HOST', '0.0.0.0')}:{os.getenv('PORT', '8000')}/metrics ║
+    ║    • OpenMetrics: http://{os.getenv('HOST', '0.0.0.0')}:{os.getenv('PORT', '8000')}/metrics/openmetrics ║
+    ║    • Health: http://{os.getenv('HOST', '0.0.0.0')}:{os.getenv('PORT', '8000')}/health/advanced ║
+    ║    • Readiness: http://{os.getenv('HOST', '0.0.0.0')}:{os.getenv('PORT', '8000')}/health/readiness ║
+    ║    • Liveness: http://{os.getenv('HOST', '0.0.0.0')}:{os.getenv('PORT', '8000')}/health/liveness ║
+    ╚══════════════════════════════════════════════════════════════╝
+    """)
+    
+    # Log business event
+    BusinessEventLogger.log_event(
+        event_type="application_startup",
+        event_data={
+            "version": "1.3.0",
+            "environment": os.getenv("ENVIRONMENT", "development"),
+            "edition": os.getenv("ARF_EDITION", "oss")
+        },
+        user_id="system"
+    )
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Application shutdown event"""
+    logger.info("ARF API shutting down gracefully")
+    
+    # Log business event
+    BusinessEventLogger.log_event(
+        event_type="application_shutdown",
+        event_data={
+            "uptime_seconds": (datetime.utcnow() - app.state.start_time).total_seconds() 
+            if hasattr(app.state, 'start_time') else 0
+        },
+        user_id="system"
+    )
+
+# ============================================================================
+# MAIN ENTRY POINT
+# ============================================================================
 
 if __name__ == "__main__":
     import uvicorn
@@ -454,27 +834,8 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     reload = os.getenv("ENVIRONMENT") == "development"
     
-    print(f"""
-    ╔══════════════════════════════════════════════════════════════╗
-    ║                    ARF API v1.2.0 Starting                   ║
-    ╠══════════════════════════════════════════════════════════════╣
-    ║  Host: {host:<55} ║
-    ║  Port: {port:<55} ║
-    ║  Environment: {os.getenv('ENVIRONMENT', 'development'):<49} ║
-    ║  Edition: {os.getenv('ARF_EDITION', 'oss'):<52} ║
-    ╠══════════════════════════════════════════════════════════════╣
-    ║  Features:                                                   ║
-    ║    • Authentication & Authorization                         ║
-    ║    • Incident Management                                    ║
-    ║    • Execution Ladder (Policy Engine)                       ║
-    ║    • Rollback Capabilities                                  ║
-    ╠══════════════════════════════════════════════════════════════╣
-    ║  Documentation:                                              ║
-    ║    • Swagger UI: http://{host}:{port}/docs                  ║
-    ║    • ReDoc: http://{host}:{port}/redoc                      ║
-    ║    • OpenAPI: http://{host}:{port}/openapi.json             ║
-    ╚══════════════════════════════════════════════════════════════╝
-    """)
+    # Store startup time
+    app.state.start_time = datetime.utcnow()
     
     uvicorn.run(
         app, 
@@ -485,5 +846,10 @@ if __name__ == "__main__":
         access_log=os.getenv("ACCESS_LOG", True),
         proxy_headers=True,
         forwarded_allow_ips="*",
-        reload=reload
+        reload=reload,
+        # Timeouts
+        timeout_keep_alive=30,
+        timeout_graceful_shutdown=30,
+        # Workers (0 = auto based on cores)
+        workers=int(os.getenv("UVICORN_WORKERS", 0))
     )
