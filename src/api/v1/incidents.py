@@ -1,15 +1,23 @@
-# src/api/v1/incidents.py - COMPLETE FIXED VERSION
+"""
+Secured incidents router with authentication and authorization.
+Psychology: Principle of least privilege - each endpoint has appropriate permission level.
+Intention: Secure all incident operations while maintaining usability.
+"""
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, asc
 from typing import List, Optional
 import redis
 from datetime import datetime, timedelta
-import json  # FIX: Added missing import
-import uuid  # For generating IDs
+import json
+import uuid
 
 from src.database import get_db
 from src.database.redis_client import get_redis
+from src.auth.dependencies import (
+    require_viewer, require_operator, require_admin,
+    get_current_user_optional, UserDB
+)
 from src.models.incident import (
     IncidentDB, IncidentCreate, IncidentUpdate, IncidentResponse, 
     IncidentListResponse, IncidentSeverity, IncidentStatus, IncidentType
@@ -18,14 +26,15 @@ from src.models.incident import (
 router = APIRouter(prefix="/api/v1/incidents", tags=["incidents"])
 
 # Cache keys
-INCIDENTS_CACHE_KEY = "api:incidents:list:{filters}"
-INCIDENT_CACHE_KEY = "api:incidents:{incident_id}"
+INCIDENTS_CACHE_KEY = "api:incidents:list:{filters}:{user_id}"
+INCIDENT_CACHE_KEY = "api:incidents:{incident_id}:{user_id}"
 CACHE_TTL = 300  # 5 minutes
 
 @router.get("/", response_model=IncidentListResponse)
 async def get_incidents(
     db: Session = Depends(get_db),
     redis_client: redis.Redis = Depends(get_redis),
+    current_user: Optional[UserDB] = Depends(get_current_user_optional),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     severity: Optional[IncidentSeverity] = None,
@@ -38,35 +47,49 @@ async def get_incidents(
     sort_order: str = Query("desc", regex="^(asc|desc)$")
 ):
     """
-    Get incidents with filtering and pagination
+    Get incidents with filtering and pagination.
+    Authentication: Optional (public data view)
+    Authorization: Authenticated users see all, anonymous see public only
     """
+    user_id = current_user.id if current_user else "anonymous"
+    
     # Build cache key
-    cache_key = INCIDENTS_CACHE_KEY.format(filters=hash((
-        page, page_size, severity, status, incident_type, 
-        agent_id, start_date, end_date, sort_by, sort_order
-    )))
+    cache_key = INCIDENTS_CACHE_KEY.format(
+        filters=hash((
+            page, page_size, severity, status, incident_type, 
+            agent_id, start_date, end_date, sort_by, sort_order
+        )),
+        user_id=user_id
+    )
     
     # Try cache first
     cached = redis_client.get(cache_key)
     if cached:
-        return IncidentListResponse.model_validate_json(cached)  # FIX: Changed from parse_raw
+        return IncidentListResponse.model_validate_json(cached)
     
     # Build query
     query = db.query(IncidentDB)
     
     # Apply filters
     if severity:
-        query = query.filter(IncidentDB.severity == severity.value)  # FIX: Use .value
+        query = query.filter(IncidentDB.severity == severity.value)
     if status:
-        query = query.filter(IncidentDB.status == status.value)      # FIX: Use .value
+        query = query.filter(IncidentDB.status == status.value)
     if incident_type:
-        query = query.filter(IncidentDB.incident_type == incident_type.value)  # FIX: Use .value
+        query = query.filter(IncidentDB.incident_type == incident_type.value)
     if agent_id:
         query = query.filter(IncidentDB.agent_id == agent_id)
     if start_date:
         query = query.filter(IncidentDB.created_at >= start_date)
     if end_date:
         query = query.filter(IncidentDB.created_at <= end_date)
+    
+    # Anonymous users only see low/medium severity incidents
+    if not current_user:
+        query = query.filter(
+            (IncidentDB.severity == IncidentSeverity.LOW.value) |
+            (IncidentDB.severity == IncidentSeverity.MEDIUM.value)
+        )
     
     # Get total count
     total = query.count()
@@ -91,7 +114,7 @@ async def get_incidents(
     )
     
     # Cache response
-    redis_client.setex(cache_key, CACHE_TTL, response.model_dump_json())  # FIX: Changed from .json()
+    redis_client.setex(cache_key, CACHE_TTL, response.model_dump_json())
     
     return response
 
@@ -99,26 +122,37 @@ async def get_incidents(
 async def get_incident(
     incident_id: str,
     db: Session = Depends(get_db),
-    redis_client: redis.Redis = Depends(get_redis)
+    redis_client: redis.Redis = Depends(get_redis),
+    current_user: Optional[UserDB] = Depends(get_current_user_optional)
 ):
     """
-    Get a specific incident by ID
+    Get a specific incident by ID.
+    Authentication: Optional
+    Authorization: Anonymous users can't access high/critical incidents
     """
-    cache_key = INCIDENT_CACHE_KEY.format(incident_id=incident_id)
+    user_id = current_user.id if current_user else "anonymous"
+    cache_key = INCIDENT_CACHE_KEY.format(incident_id=incident_id, user_id=user_id)
     
     # Try cache first
     cached = redis_client.get(cache_key)
     if cached:
-        return IncidentResponse.model_validate_json(cached)  # FIX: Changed from parse_raw
+        return IncidentResponse.model_validate_json(cached)
     
     # Query database
     incident = db.query(IncidentDB).filter(IncidentDB.id == incident_id).first()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
     
+    # Authorization check for anonymous users
+    if not current_user and incident.severity in [IncidentSeverity.HIGH.value, IncidentSeverity.CRITICAL.value]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Authentication required to view this incident"
+        )
+    
     # Cache response
-    incident_response = IncidentResponse.model_validate(incident)  # FIX: Changed from from_orm
-    redis_client.setex(cache_key, CACHE_TTL, incident_response.model_dump_json())  # FIX: Changed from .json()
+    incident_response = IncidentResponse.model_validate(incident)
+    redis_client.setex(cache_key, CACHE_TTL, incident_response.model_dump_json())
     
     return incident_response
 
@@ -126,15 +160,22 @@ async def get_incident(
 async def create_incident(
     incident_data: IncidentCreate,
     db: Session = Depends(get_db),
-    redis_client: redis.Redis = Depends(get_redis)
+    redis_client: redis.Redis = Depends(get_redis),
+    current_user: UserDB = Depends(require_operator)  # Changed: Requires authentication
 ):
     """
-    Create a new incident
+    Create a new incident.
+    Authentication: Required
+    Authorization: Operator role or higher
     """
     # Generate ID if not provided
     incident_dict = incident_data.model_dump()
     if 'id' not in incident_dict or not incident_dict['id']:
         incident_dict['id'] = str(uuid.uuid4())
+    
+    # Add created_by metadata
+    incident_dict['metadata'] = incident_dict.get('metadata', {})
+    incident_dict['metadata']['created_by'] = current_user.email
     
     # Create incident in database
     db_incident = IncidentDB(**incident_dict)
@@ -142,13 +183,10 @@ async def create_incident(
     db.commit()
     db.refresh(db_incident)
     
-    # Invalidate list caches
-    cache_pattern = "api:incidents:list:*"
+    # Invalidate caches
+    cache_pattern = "api:incidents:*"
     for key in redis_client.scan_iter(cache_pattern):
         redis_client.delete(key)
-    
-    # Also invalidate stats cache
-    redis_client.delete("api:incidents:stats:summary")
     
     return db_incident
 
@@ -157,10 +195,13 @@ async def update_incident(
     incident_id: str,
     incident_data: IncidentUpdate,
     db: Session = Depends(get_db),
-    redis_client: redis.Redis = Depends(get_redis)
+    redis_client: redis.Redis = Depends(get_redis),
+    current_user: UserDB = Depends(require_operator)  # Changed: Requires authentication
 ):
     """
-    Update an existing incident
+    Update an existing incident.
+    Authentication: Required
+    Authorization: Operator role or higher
     """
     # Get incident
     incident = db.query(IncidentDB).filter(IncidentDB.id == incident_id).first()
@@ -168,9 +209,15 @@ async def update_incident(
         raise HTTPException(status_code=404, detail="Incident not found")
     
     # Update fields
-    update_data = incident_data.model_dump(exclude_unset=True)  # FIX: Changed from dict()
+    update_data = incident_data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(incident, field, value)
+    
+    # Add updated_by metadata
+    if 'metadata' not in update_data:
+        incident.metadata = incident.metadata or {}
+    incident.metadata['updated_by'] = current_user.email
+    incident.metadata['updated_at'] = datetime.utcnow().isoformat()
     
     # Set resolved_at if status changed to RESOLVED or CLOSED
     if incident_data.status in [IncidentStatus.RESOLVED, IncidentStatus.CLOSED]:
@@ -183,94 +230,9 @@ async def update_incident(
     db.refresh(incident)
     
     # Invalidate caches
-    redis_client.delete(INCIDENT_CACHE_KEY.format(incident_id=incident_id))
-    cache_pattern = "api:incidents:list:*"
+    cache_pattern = f"api:incidents:*{incident_id}*"
     for key in redis_client.scan_iter(cache_pattern):
         redis_client.delete(key)
-    redis_client.delete("api:incidents:stats:summary")
     
-    return incident
-
-@router.delete("/{incident_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_incident(
-    incident_id: str,
-    db: Session = Depends(get_db),
-    redis_client: redis.Redis = Depends(get_redis)
-):
-    """
-    Delete an incident (soft delete via status change)
-    """
-    incident = db.query(IncidentDB).filter(IncidentDB.id == incident_id).first()
-    if not incident:
-        raise HTTPException(status_code=404, detail="Incident not found")
-    
-    # Soft delete - mark as closed
-    incident.status = IncidentStatus.CLOSED.value  # FIX: Use .value
-    incident.updated_at = datetime.utcnow()
-    
-    db.commit()
-    
-    # Invalidate caches
-    redis_client.delete(INCIDENT_CACHE_KEY.format(incident_id=incident_id))
     cache_pattern = "api:incidents:list:*"
-    for key in redis_client.scan_iter(cache_pattern):
-        redis_client.delete(key)
-    redis_client.delete("api:incidents:stats:summary")
-
-@router.get("/stats/summary")
-async def get_incident_stats(
-    db: Session = Depends(get_db),
-    redis_client: redis.Redis = Depends(get_redis)
-):
-    """
-    Get incident statistics summary
-    """
-    cache_key = "api:incidents:stats:summary"
-    
-    # Try cache first
-    cached = redis_client.get(cache_key)
-    if cached:
-        return json.loads(cached)
-    
-    # Calculate stats
-    total = db.query(IncidentDB).count()
-    
-    # By severity
-    severity_stats = {}
-    for severity in IncidentSeverity:
-        count = db.query(IncidentDB).filter(IncidentDB.severity == severity.value).count()  # FIX: Use .value
-        severity_stats[severity.value] = count
-    
-    # By status
-    status_stats = {}
-    for status in IncidentStatus:
-        count = db.query(IncidentDB).filter(IncidentDB.status == status.value).count()  # FIX: Use .value
-        status_stats[status.value] = count
-    
-    # By type
-    type_stats = {}
-    for incident_type in IncidentType:
-        count = db.query(IncidentDB).filter(IncidentDB.incident_type == incident_type.value).count()  # FIX: Use .value
-        type_stats[incident_type.value] = count
-    
-    # Last 24 hours
-    last_24h = datetime.utcnow() - timedelta(days=1)
-    recent_count = db.query(IncidentDB).filter(IncidentDB.created_at >= last_24h).count()
-    
-    # Open incidents
-    open_count = db.query(IncidentDB).filter(IncidentDB.status == IncidentStatus.OPEN.value).count()  # FIX: Use .value
-    
-    stats = {
-        "total": total,
-        "severity_distribution": severity_stats,
-        "status_distribution": status_stats,
-        "type_distribution": type_stats,
-        "recent_24h": recent_count,
-        "open_incidents": open_count,
-        "last_updated": datetime.utcnow().isoformat()
-    }
-    
-    # Cache for 1 minute
-    redis_client.setex(cache_key, 60, json.dumps(stats))
-    
-    return stats
+   
