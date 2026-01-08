@@ -1,7 +1,7 @@
 """
 Main application with authentication, execution ladder, rollback, and monitoring integrated.
 Psychology: Unified reliability platform with progressive enhancement and comprehensive observability.
-Intention: Complete system for incident prevention, management, recovery, and observability.
+Intention: Complete system for incident prevention, management, recovery, observability, and notifications.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,6 +11,7 @@ from datetime import datetime
 import logging
 
 from src.api.v1 import incidents
+from src.api.v1.webhooks import router as webhooks_router
 from src.auth.router import router as auth_router
 from src.api.v1.execution_ladder import router as execution_ladder_router
 from src.api.v1.rollback import router as rollback_router
@@ -34,7 +35,7 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="ARF API",
-    version="1.3.0",  # Updated version for monitoring feature
+    version="1.4.0",  # Updated version for webhook feature
     description="""Agentic Reliability Framework API - Complete System Reliability Platform with Observability
     
 ## 🔥 Core Reliability Features:
@@ -68,12 +69,21 @@ app = FastAPI(
 - Comprehensive rollback dashboard and analytics
 - Automated rollback verification
 
-### 📊 **Monitoring & Observability** (NEW)
+### 🔔 **Webhook & Notification System** (NEW)
+- Multi-channel notifications (Slack, Teams, Email, Discord, PagerDuty, OpsGenie)
+- Event-driven architecture with guaranteed delivery
+- Template management with variable substitution
+- Retry logic with exponential backoff
+- Rate limiting and circuit breaking
+- Delivery tracking and audit logs
+- Integration health monitoring
+
+### 📊 **Monitoring & Observability**
 - Prometheus metrics endpoint (`/metrics`)
 - Structured JSON logging with correlation IDs
 - Comprehensive health checks with readiness/liveness probes
 - Performance monitoring (p50, p95, p99 latencies)
-- Business metrics tracking (incidents, policies, rollbacks)
+- Business metrics tracking (incidents, policies, rollbacks, notifications)
 - Database and cache performance metrics
 - Grafana dashboard integration
 - Alertmanager integration for notifications
@@ -101,6 +111,7 @@ app = FastAPI(
 - **Prevention**: Proactive policy enforcement via execution ladder
 - **Detection**: Real-time incident monitoring and alerting
 - **Response**: Efficient incident management and collaboration
+- **Communication**: Multi-channel notifications for team coordination
 - **Recovery**: Reliable rollback capabilities for system restoration
 - **Improvement**: Data-driven insights from comprehensive metrics
 
@@ -134,6 +145,10 @@ app = FastAPI(
         {
             "name": "monitoring",
             "description": "Monitoring, metrics, and observability endpoints"
+        },
+        {
+            "name": "webhooks",
+            "description": "Webhook and notification management"
         }
     ],
     contact={
@@ -201,6 +216,7 @@ app.include_router(auth_router)
 app.include_router(incidents.router)
 app.include_router(execution_ladder_router)
 app.include_router(rollback_router)
+app.include_router(webhooks_router)
 
 # ============================================================================
 # ROOT ENDPOINTS
@@ -227,7 +243,7 @@ async def root():
     
     return {
         "service": "ARF API",
-        "version": "1.3.0",
+        "version": "1.4.0",
         "status": "running",
         "environment": os.getenv("ENVIRONMENT", "development"),
         "edition": os.getenv("ARF_EDITION", "oss"),
@@ -237,6 +253,7 @@ async def root():
             "execution_ladder": "enabled",
             "rollback_capabilities": "enabled",
             "monitoring_observability": "enabled",
+            "webhook_notifications": "enabled",
             "databases": {
                 "primary": "postgresql",
                 "graph": "neo4j",
@@ -247,6 +264,7 @@ async def root():
             "prevention": "Execution ladder policies",
             "detection": "Incident monitoring + metrics",
             "response": "Incident management + alerting",
+            "communication": "Webhook notifications",
             "recovery": "Rollback operations",
             "observability": "Metrics, logs, tracing"
         },
@@ -266,6 +284,7 @@ async def root():
             "incidents": "/api/v1/incidents", 
             "execution_ladder": "/api/v1/execution-ladder",
             "rollback": "/api/v1/rollback",
+            "webhooks": "/api/v1/webhooks",
             "health": {
                 "basic": "/health",
                 "detailed": "/health/detailed",
@@ -298,13 +317,14 @@ async def health():
     return {
         "status": "healthy",
         "edition": os.getenv("ARF_EDITION", "oss"),
-        "version": "1.3.0",
+        "version": "1.4.0",
         "features": {
             "authentication": "enabled",
             "incident_management": "enabled",
             "execution_ladder": "enabled",
             "rollback": "enabled",
-            "monitoring": "enabled"
+            "monitoring": "enabled",
+            "webhooks": "enabled"
         },
         "services": {
             "postgres": "connected",
@@ -437,6 +457,25 @@ async def detailed_health():
             "error": str(e)
         }
     
+    # Check webhook service
+    try:
+        from src.services.webhook_service import get_webhook_service
+        webhook_service = get_webhook_service()
+        
+        # Test webhook service connectivity
+        stats = await webhook_service.get_system_stats()
+        
+        health_status["features"]["webhooks"] = {
+            "status": "operational",
+            "total_webhooks": stats.get("total_webhooks", 0),
+            "active_webhooks": stats.get("active_webhooks", 0)
+        }
+    except Exception as e:
+        health_status["features"]["webhooks"] = {
+            "status": "degraded",
+            "error": str(e)
+        }
+    
     # Check monitoring
     try:
         # Get performance report
@@ -556,6 +595,7 @@ async def get_metrics_summary():
         "http_metrics": 0,
         "business_metrics": 0,
         "system_metrics": 0,
+        "webhook_metrics": 0,
         "timestamp": datetime.utcnow().isoformat()
     }
     
@@ -564,6 +604,8 @@ async def get_metrics_summary():
             summary["http_metrics"] += 1
         elif any(x in line for x in ['incident', 'policy', 'rollback']):
             summary["business_metrics"] += 1
+        elif any(x in line for x in ['webhook', 'notification', 'integration']):
+            summary["webhook_metrics"] += 1
         elif any(x in line for x in ['memory', 'cpu', 'disk', 'uptime']):
             summary["system_metrics"] += 1
     
@@ -579,7 +621,7 @@ async def api_info():
     return {
         "api": {
             "name": "ARF API",
-            "version": "1.3.0",
+            "version": "1.4.0",
             "description": "Agentic Reliability Framework API",
             "specification": "OpenAPI 3.0",
             "schema_version": "1.0"
@@ -610,6 +652,11 @@ async def api_info():
                 "endpoints": ["/api/v1/rollback"],
                 "features": ["action logging", "rollback execution", "bulk operations", "risk assessment", "audit trails", "verification"]
             },
+            "webhooks": {
+                "description": "Notification system with multi-channel support",
+                "endpoints": ["/api/v1/webhooks"],
+                "features": ["multi-channel notifications", "template management", "retry logic", "delivery tracking", "integration validation"]
+            },
             "monitoring": {
                 "description": "Observability and metrics",
                 "endpoints": ["/metrics", "/monitoring/*", "/health/*"],
@@ -633,9 +680,18 @@ async def api_info():
                 "features": ["in-memory data store", "pub/sub", "transactions"]
             }
         },
+        "notification_channels": {
+            "slack": "Webhook integration with rich formatting",
+            "teams": "Microsoft Teams adaptive cards",
+            "email": "SMTP with HTML templates",
+            "discord": "Webhook with embeds and mentions",
+            "pagerduty": "Incident management integration",
+            "opsgenie": "Alerting and on-call management"
+        },
         "reliability_patterns": {
             "prevention": "Execution ladder policies with conditional evaluation",
             "detection": "Incident monitoring + real-time metrics + alerting",
+            "communication": "Multi-channel notifications for team coordination",
             "response": "Incident management with collaboration tools",
             "recovery": "Rollback capabilities with verification",
             "observability": "Three pillars: metrics, logs, traces"
@@ -709,7 +765,7 @@ async def system_status():
     
     return {
         "system": {
-            "version": "1.3.0",
+            "version": "1.4.0",
             "environment": os.getenv("ENVIRONMENT", "development"),
             "edition": os.getenv("ARF_EDITION", "oss"),
             "startup_time": app.state.start_time.isoformat() if hasattr(app.state, 'start_time') else "unknown",
@@ -768,7 +824,7 @@ async def startup_event():
     """Application startup event"""
     logger.info(f"""
     ╔══════════════════════════════════════════════════════════════╗
-    ║                    ARF API v1.3.0 Starting                   ║
+    ║                    ARF API v1.4.0 Starting                   ║
     ╠══════════════════════════════════════════════════════════════╣
     ║  Environment: {os.getenv('ENVIRONMENT', 'development'):<49} ║
     ║  Edition: {os.getenv('ARF_EDITION', 'oss'):<52} ║
@@ -781,6 +837,7 @@ async def startup_event():
     ║    • 🪜 Execution Ladder (Policy Engine)                     ║
     ║    • 🔄 Rollback Capabilities                                ║
     ║    • 📊 Monitoring & Observability                           ║
+    ║    • 🔔 Webhook Notifications                                ║
     ╠══════════════════════════════════════════════════════════════╣
     ║  Documentation:                                              ║
     ║    • Swagger UI: http://{os.getenv('HOST', '0.0.0.0')}:{os.getenv('PORT', '8000')}/docs ║
@@ -800,7 +857,7 @@ async def startup_event():
     BusinessEventLogger.log_event(
         event_type="application_startup",
         event_data={
-            "version": "1.3.0",
+            "version": "1.4.0",
             "environment": os.getenv("ENVIRONMENT", "development"),
             "edition": os.getenv("ARF_EDITION", "oss")
         },
