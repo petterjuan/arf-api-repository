@@ -43,3 +43,34 @@ orjson>=3.9.0
 
 # Environment configuration
 pydantic-settings>=2.0.0  # For structured settings management
+
+# Add to existing requirements.txt:
+
+# ============================================================================
+# MONITORING & OBSERVABILITY
+# ============================================================================
+
+# Prometheus metrics
+prometheus-client>=0.17.0
+prometheus-fastapi-instrumentator>=5.10.0
+
+# Structured logging
+structlog>=23.0.0
+python-json-logger>=2.0.0
+
+# OpenTelemetry (distributed tracing)
+opentelemetry-api>=1.20.0
+opentelemetry-sdk>=1.20.0
+opentelemetry-instrumentation-fastapi>=0.41b0
+opentelemetry-instrumentation-sqlalchemy>=0.41b0
+opentelemetry-exporter-prometheus>=0.41b0
+
+# Performance profiling
+pyinstrument>=4.0.0
+memory-profiler>=0.60.0
+
+# Health checks
+healthcheck>=2.0.0
+
+# System metrics
+psutil>=5.9.0
