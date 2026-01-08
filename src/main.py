@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 import os
+from datetime import datetime  # FIX: Added missing import
 
 from src.api.v1 import incidents
 from src.auth.router import router as auth_router
