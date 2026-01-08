@@ -15,6 +15,9 @@ from src.api.v1.execution_ladder import router as execution_ladder_router
 from src.api.v1.rollback import router as rollback_router
 from src.database import engine, Base
 from src.auth.database_models import UserDB, APIKeyDB, RefreshTokenDB
+# Add to imports section:
+from src.monitoring import setup_monitoring, BusinessMetrics
+from src.middleware.logging import StructuredLoggingMiddleware, BusinessEventLogger
 
 # Create all tables
 Base.metadata.create_all(bind=engine)
