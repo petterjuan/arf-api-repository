@@ -53,21 +53,12 @@ class IncidentDB(Base):
     
     # Additional data
     tags = Column(JSON, default=list)
-    incident_metadata = Column(JSON, default=dict)  # CHANGED: metadata → incident_metadata
+    custom_metadata = Column(JSON, default=dict)  # CHANGED: metadata → custom_metadata
     affected_users = Column(Integer, default=0)
     
     # Timeline/Resolution
     root_cause = Column(Text, nullable=True)
     resolution = Column(Text, nullable=True)
-    
-    # Property to maintain API compatibility
-    @property
-    def metadata(self):
-        return self.incident_metadata
-    
-    @metadata.setter
-    def metadata(self, value):
-        self.incident_metadata = value
     
     # Indexes (to be created in migrations)
     __table_args__ = (
@@ -75,6 +66,17 @@ class IncidentDB(Base):
         Index('ix_incidents_severity', 'severity'),
         Index('ix_incidents_status', 'status'),
     )
+    
+    # Compatibility property - maps custom_metadata to metadata for API
+    @property
+    def metadata(self):
+        """Get metadata for API compatibility"""
+        return self.custom_metadata
+    
+    @metadata.setter
+    def metadata(self, value):
+        """Set metadata for API compatibility"""
+        self.custom_metadata = value
 
 # Pydantic Models for API
 class IncidentBase(BaseModel):
