@@ -6,7 +6,7 @@ Intention: Make it easy to import database utilities without knowing internal st
 """
 from .neo4j_client import driver as neo4j_driver, get_neo4j
 from .redis_client import redis_client, get_redis
-from .postgres_client import get_db, get_async_db, Base  # Import from local module
+from .postgres_client import get_db, get_async_db, Base, engine, async_engine  # Added engine and async_engine
 
 __all__ = [
     'neo4j_driver',
@@ -15,5 +15,7 @@ __all__ = [
     'get_redis',
     'get_db',
     'get_async_db',
-    'Base'
+    'Base',
+    'engine',        # Added
+    'async_engine'   # Added
 ]
