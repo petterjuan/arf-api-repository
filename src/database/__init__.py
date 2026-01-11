@@ -9,8 +9,8 @@ from .redis_client import redis_client, get_redis
 from .postgres_client import (
     get_db, 
     get_async_db, 
-    Base, 
-    engine, 
+    Base,
+    engine,
     async_engine,
     SessionLocal,
     AsyncSessionLocal
@@ -29,3 +29,13 @@ __all__ = [
     'SessionLocal',
     'AsyncSessionLocal'
 ]
+
+# Add a function to initialize all databases (call this in main.py)
+def init_databases():
+    """Initialize all database connections when app starts"""
+    # This will trigger lazy initialization
+    _ = engine
+    _ = async_engine
+    _ = SessionLocal
+    _ = AsyncSessionLocal
+    print("📊 Databases initialized")
