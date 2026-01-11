@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: arf-api
+    env: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: arf-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: arf-redis
+          property: connectionString
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: NEO4J_URL
+        fromService:
+          type: web_service
+          name: arf-neo4j
+          property: host
+    healthCheckPath: /health
+    autoDeploy: true
+
+databases:
+  - name: arf-postgres
+    databaseName: arf_production
+    user: arf_user
+
+redis:
+  - name: arf-redis
+    ipAllowList: []
+    maxmemoryPolicy: allkeys-lru
+
+# Note: Neo4j would need to be a separate service on Render
