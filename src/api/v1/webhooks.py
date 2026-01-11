@@ -13,7 +13,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 import redis
 
-from src.auth.dependencies import get_current_user, require_role, Role
+from src.auth.dependencies import get_current_user, require_role
+from src.auth.models import UserRole
 from src.database import get_db
 from src.database.redis_client import get_redis
 from src.models.webhook import (
@@ -21,8 +22,7 @@ from src.models.webhook import (
     Notification, NotificationDelivery, NotificationPriority, NotificationChannel,
     WebhookSecurity, WebhookTestRequest, WebhookTestResponse,
     SlackConfiguration, TeamsConfiguration, EmailConfiguration,
-    DiscordConfiguration, PagerDutyConfiguration, OpsGenieConfiguration,
-    NotificationTemplate, NotificationTemplateCreate, NotificationTemplateUpdate
+    PagerDutyConfiguration, NotificationTemplate, NotificationTemplateCreate, NotificationTemplateUpdate
 )
 from src.services.webhook_service import get_webhook_service, WebhookError
 from src.integrations import IntegrationFactory, IntegrationType
@@ -37,7 +37,7 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 @router.post("/", response_model=Dict[str, Any])
 async def create_webhook(
     webhook_data: WebhookCreate,
-    current_user: Dict = Depends(require_role([Role.OPERATOR, Role.ADMIN, Role.SUPER_ADMIN])),
+    current_user: Dict = Depends(require_role(UserRole.OPERATOR)),
     db: Session = Depends(get_db),
     redis_client: redis.Redis = Depends(get_redis)
 ):
@@ -193,7 +193,7 @@ async def get_webhook(
 async def update_webhook(
     webhook_id: str,
     updates: WebhookUpdate,
-    current_user: Dict = Depends(require_role([Role.OPERATOR, Role.ADMIN, Role.SUPER_ADMIN])),
+    current_user: Dict = Depends(require_role(UserRole.OPERATOR)),
     redis_client: redis.Redis = Depends(get_redis)
 ):
     """
@@ -256,7 +256,7 @@ async def update_webhook(
 @router.delete("/{webhook_id}", response_model=Dict[str, Any])
 async def delete_webhook(
     webhook_id: str,
-    current_user: Dict = Depends(require_role([Role.OPERATOR, Role.ADMIN, Role.SUPER_ADMIN])),
+    current_user: Dict = Depends(require_role(UserRole.OPERATOR)),
     redis_client: redis.Redis = Depends(get_redis)
 ):
     """
@@ -321,7 +321,7 @@ async def delete_webhook(
 async def test_webhook(
     webhook_id: str,
     test_request: Optional[WebhookTestRequest] = None,
-    current_user: Dict = Depends(require_role([Role.OPERATOR, Role.ADMIN, Role.SUPER_ADMIN])),
+    current_user: Dict = Depends(require_role(UserRole.OPERATOR)),
     redis_client: redis.Redis = Depends(get_redis)
 ):
     """
@@ -452,7 +452,7 @@ async def get_webhook_stats(
 async def get_system_webhook_stats(
     start_time: Optional[datetime] = Query(None, description="Start time for statistics"),
     end_time: Optional[datetime] = Query(None, description="End time for statistics"),
-    current_user: Dict = Depends(require_role([Role.ADMIN, Role.SUPER_ADMIN])),
+    current_user: Dict = Depends(require_role(UserRole.ADMIN)),
     redis_client: redis.Redis = Depends(get_redis)
 ):
     """
@@ -507,7 +507,7 @@ async def get_supported_integrations(
 async def validate_integration_configuration(
     integration_type: IntegrationType,
     config_data: Dict[str, Any] = Body(...),
-    current_user: Dict = Depends(require_role([Role.OPERATOR, Role.ADMIN, Role.SUPER_ADMIN]))
+    current_user: Dict = Depends(require_role(UserRole.OPERATOR))
 ):
     """
     Validate integration configuration.
@@ -534,7 +534,7 @@ async def validate_integration_configuration(
 @router.post("/templates", response_model=Dict[str, Any])
 async def create_notification_template(
     template_data: NotificationTemplateCreate,
-    current_user: Dict = Depends(require_role([Role.OPERATOR, Role.ADMIN, Role.SUPER_ADMIN])),
+    current_user: Dict = Depends(require_role(UserRole.OPERATOR)),
     db: Session = Depends(get_db)
 ):
     """
@@ -637,7 +637,7 @@ async def list_notification_templates(
 async def update_notification_template(
     template_id: str,
     updates: NotificationTemplateUpdate,
-    current_user: Dict = Depends(require_role([Role.OPERATOR, Role.ADMIN, Role.SUPER_ADMIN]))
+    current_user: Dict = Depends(require_role(UserRole.OPERATOR))
 ):
     """
     Update a notification template.
@@ -673,7 +673,7 @@ async def update_notification_template(
 @router.delete("/templates/{template_id}", response_model=Dict[str, Any])
 async def delete_notification_template(
     template_id: str,
-    current_user: Dict = Depends(require_role([Role.OPERATOR, Role.ADMIN, Role.SUPER_ADMIN]))
+    current_user: Dict = Depends(require_role(UserRole.OPERATOR))
 ):
     """
     Delete a notification template.
@@ -715,7 +715,7 @@ async def simulate_webhook_event(
     payload: Dict[str, Any] = Body(...),
     severity: NotificationPriority = Body(NotificationPriority.MEDIUM),
     context: Optional[Dict[str, Any]] = Body(None),
-    current_user: Dict = Depends(require_role([Role.ADMIN, Role.SUPER_ADMIN])),
+    current_user: Dict = Depends(require_role(UserRole.ADMIN)),
     redis_client: redis.Redis = Depends(get_redis)
 ):
     """
