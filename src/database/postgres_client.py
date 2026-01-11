@@ -5,8 +5,9 @@ Psychology: Single responsibility - handles only PostgreSQL connections.
 Intention: Isolate database concerns for better maintainability.
 """
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from typing import Generator, AsyncGenerator
 import os
 
 # Database URLs
@@ -28,7 +29,7 @@ AsyncSessionLocal = sessionmaker(
 Base = declarative_base()
 
 # Dependency for FastAPI
-def get_db():
+def get_db() -> Generator[Session, None, None]:
     """
     Get a synchronous database session.
     Psychology: Resource management - ensures sessions are properly closed.
@@ -40,7 +41,7 @@ def get_db():
     finally:
         db.close()
 
-async def get_async_db():
+async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
     """
     Get an asynchronous database session.
     Psychology: Async-first design for modern web applications.
