@@ -13,17 +13,17 @@ from src.models.webhook import Notification, NotificationPriority
 
 logger = logging.getLogger(__name__)
 
-class IntegrationType(Enum):
-    """Integration type enumeration"""
+class IntegrationType(str, Enum):
+    """Integration type enumeration - MUST MATCH integrations/__init__.py"""
     SLACK = "slack"
     TEAMS = "teams"
     EMAIL = "email"
     DISCORD = "discord"
     PAGERDUTY = "pagerduty"
     OPSGENIE = "opsgenie"
-    WEBHOOK = "webhook"
+    WEBHOOK = "webhook"  # Added to match potential usage
 
-class IntegrationStatus(Enum):
+class IntegrationStatus(str, Enum):
     """Integration status enumeration"""
     CONNECTED = "connected"
     DISCONNECTED = "disconnected"
@@ -178,3 +178,12 @@ class BaseIntegration(abc.ABC):
             "urgent": notification.urgent,
             "metadata": notification.metadata
         }
+
+
+# Export all important classes
+__all__ = [
+    'IntegrationType',
+    'IntegrationStatus',
+    'IntegrationHealth',
+    'BaseIntegration',
+]
