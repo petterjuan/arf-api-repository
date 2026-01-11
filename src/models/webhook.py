@@ -147,7 +147,7 @@ class NotificationTemplateBase(BaseModel):
     fallback_template: Optional[str] = None
     
     # Formatting
-    format: str = Field("markdown", pattern="^(plaintext|markdown|html|slack|teams)$")  # FIXED: regex→pattern
+    format: str = Field("markdown", pattern="^(plaintext|markdown|html|slack|teams)$")
     color_map: Dict[str, str] = Field(default_factory=dict)  # Severity → color
     
     # Variables
@@ -180,8 +180,8 @@ class Webhook(WebhookBase):
     
     # Owner and scope
     owner_id: Optional[str] = None
-    owner_type: str = Field("system", pattern="^(system|user|team|organization)$")  # FIXED: regex→pattern
-    scope: str = Field("global", pattern="^(global|organization|project|user)$")  # FIXED: regex→pattern
+    owner_type: str = Field("system", pattern="^(system|user|team|organization)$")
+    scope: str = Field("global", pattern="^(global|organization|project|user)$")
     
     # Statistics
     total_deliveries: int = 0
@@ -268,9 +268,9 @@ class NotificationEvent(BaseModel):
     event_type: WebhookEventType
     
     # Source
-    source_system: str = Field("arf", pattern="^(arf|external|integration)$")  # FIXED: regex→pattern
+    source_system: str = Field("arf", pattern="^(arf|external|integration)$")
     source_id: str  # e.g., incident_id, policy_id, rollback_id
-    source_type: str = Field(..., pattern="^(incident|policy|rollback|agent|system)$")  # FIXED: regex→pattern
+    source_type: str = Field(..., pattern="^(incident|policy|rollback|agent|system)$")
     
     # Context
     context: Dict[str, Any] = Field(default_factory=dict)
@@ -308,7 +308,7 @@ class Notification(BaseModel):
     
     # Recipients
     recipient: Optional[str] = None  # email, phone, user_id, channel_id
-    recipient_type: str = Field("system", pattern="^(user|team|channel|email|phone|webhook)$")  # FIXED: regex→pattern
+    recipient_type: str = Field("system", pattern="^(user|team|channel|email|phone|webhook)$")
     
     # Delivery
     status: WebhookStatus = WebhookStatus.PENDING
@@ -359,7 +359,7 @@ class NotificationTemplateUpdate(BaseModel):
     description: Optional[str] = None
     body_template: Optional[str] = None
     subject_template: Optional[str] = None
-    format: Optional[str] = Field(None, pattern="^(plaintext|markdown|html|slack|teams)$")  # FIXED: regex→pattern
+    format: Optional[str] = Field(None, pattern="^(plaintext|markdown|html|slack|teams)$")
     is_default: Optional[bool] = None
     is_active: Optional[bool] = None
     tags: Optional[List[str]] = None
@@ -463,6 +463,9 @@ class SlackConfiguration(BaseModel):
         NotificationPriority.HIGH: "#ff9900",
         NotificationPriority.CRITICAL: "#cc0000"
     })
+    
+    class Config:
+        from_attributes = True
 
 class TeamsConfiguration(BaseModel):
     """Microsoft Teams integration configuration"""
@@ -470,6 +473,9 @@ class TeamsConfiguration(BaseModel):
     theme_color: str = Field("0078D7")
     include_facts: bool = True
     include_action_buttons: bool = False
+    
+    class Config:
+        from_attributes = True
 
 class EmailConfiguration(BaseModel):
     """Email integration configuration"""
@@ -488,6 +494,40 @@ class EmailConfiguration(BaseModel):
     # Template
     html_template: Optional[str] = None
     text_template: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+class DiscordConfiguration(BaseModel):
+    """Discord webhook configuration"""
+    webhook_url: HttpUrl
+    username: str = Field("ARF Bot")
+    avatar_url: Optional[HttpUrl] = None
+    
+    # Message formatting
+    embeds: bool = True
+    mention_everyone: bool = False
+    mention_roles: List[str] = Field(default_factory=list)
+    mention_users: List[str] = Field(default_factory=list)
+    
+    # Embed colors by priority
+    embed_colors: Dict[NotificationPriority, str] = Field(default_factory=lambda: {
+        NotificationPriority.LOW: "0x36a64f",
+        NotificationPriority.MEDIUM: "0xf2c744",
+        NotificationPriority.HIGH: "0xff9900",
+        NotificationPriority.CRITICAL: "0xcc0000"
+    })
+    
+    @validator('mention_roles', 'mention_users')
+    def validate_mentions(cls, v):
+        """Validate Discord mention format"""
+        for mention in v:
+            if not (mention.startswith('<@&') or mention.startswith('<@!')):
+                raise ValueError(f"Invalid Discord mention format: {mention}")
+        return v
+    
+    class Config:
+        from_attributes = True
 
 class PagerDutyConfiguration(BaseModel):
     """PagerDuty integration configuration"""
@@ -500,6 +540,60 @@ class PagerDutyConfiguration(BaseModel):
         NotificationPriority.HIGH: "high",
         NotificationPriority.CRITICAL: "critical"
     })
+    
+    class Config:
+        from_attributes = True
+
+class OpsGenieConfiguration(BaseModel):
+    """OpsGenie integration configuration"""
+    api_key: str
+    team_id: Optional[str] = None
+    schedule_id: Optional[str] = None
+    escalation_id: Optional[str] = None
+    
+    # Alert mapping
+    priority_map: Dict[NotificationPriority, str] = Field(default_factory=lambda: {
+        NotificationPriority.LOW: "P5",
+        NotificationPriority.MEDIUM: "P3",
+        NotificationPriority.HIGH: "P2",
+        NotificationPriority.CRITICAL: "P1"
+    })
+    
+    # Alert details
+    alias_template: str = Field("ARF-{source_type}-{source_id}")
+    description_template: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    
+    @validator('api_key')
+    def validate_api_key(cls, v):
+        """Validate OpsGenie API key format"""
+        if len(v) != 36:
+            raise ValueError("OpsGenie API key should be 36 characters")
+        return v
+    
+    class Config:
+        from_attributes = True
+
+class BaseNotificationConfig(BaseModel):
+    """Base configuration for all notifications"""
+    enabled: bool = True
+    timeout_seconds: int = Field(30, ge=1, le=300)
+    retry_count: int = Field(3, ge=0, le=10)
+    retry_delay_seconds: int = Field(60, ge=1, le=3600)
+    
+    # Rate limiting
+    rate_limit_per_minute: Optional[int] = Field(None, ge=1, le=1000)
+    
+    # Security
+    verify_ssl: bool = True
+    custom_headers: Dict[str, str] = Field(default_factory=dict)
+    
+    # Metadata
+    tags: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    
+    class Config:
+        from_attributes = True
 
 # ============================================================================
 # EVENT PAYLOAD MODELS
@@ -588,3 +682,53 @@ class SystemEventPayload(BaseModel):
     
     class Config:
         from_attributes = True
+
+# ============================================================================
+# EXPORT ALL MODELS
+# ============================================================================
+
+__all__ = [
+    # Enums
+    'WebhookEventType',
+    'NotificationChannel',
+    'WebhookStatus',
+    'DeliveryMethod',
+    'NotificationPriority',
+    'WebhookSecurity',
+    
+    # Base Models
+    'WebhookBase',
+    'NotificationTemplateBase',
+    
+    # Full Models
+    'Webhook',
+    'NotificationTemplate',
+    'NotificationDelivery',
+    'NotificationEvent',
+    'Notification',
+    
+    # Request/Response Models
+    'WebhookCreate',
+    'WebhookUpdate',
+    'NotificationTemplateCreate',
+    'NotificationTemplateUpdate',
+    'SendNotificationRequest',
+    'TestWebhookRequest',
+    'WebhookTestResponse',
+    'NotificationStats',
+    
+    # Integration Models
+    'SlackConfiguration',
+    'TeamsConfiguration',
+    'EmailConfiguration',
+    'DiscordConfiguration',
+    'PagerDutyConfiguration',
+    'OpsGenieConfiguration',
+    'BaseNotificationConfig',
+    
+    # Event Payload Models
+    'IncidentEventPayload',
+    'PolicyEventPayload',
+    'RollbackEventPayload',
+    'SystemEventPayload',
+]
