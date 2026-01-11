@@ -18,14 +18,13 @@ from src.models.rollback import (
 
 router = APIRouter(prefix="/api/v1/rollback", tags=["rollback"])
 
-# FIX: Changed from response_model=Dict[str, str] to a proper Pydantic model
-# Added proper return type annotation
-@router.post("/actions", response_model=Dict[str, Any], status_code=status.HTTP_201_CREATED)
+# FIX: Removed the explicit response_model and added explicit return type
+@router.post("/actions", status_code=status.HTTP_201_CREATED)
 async def log_action(
     action_data: Dict[str, Any],
     current_user: UserDB = Depends(require_operator),
     service = Depends(get_rollback_service)
-):
+) -> Dict[str, Any]:
     """
     Log an action for potential rollback.
     Authentication: Required
