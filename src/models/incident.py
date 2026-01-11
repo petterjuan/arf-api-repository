@@ -40,7 +40,7 @@ class IncidentDB(Base):
     status = Column(Enum(IncidentStatus), default=IncidentStatus.OPEN)
     incident_type = Column(Enum(IncidentType), default=IncidentType.SYSTEM)
     
-    # Metadata
+    # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     resolved_at = Column(DateTime(timezone=True), nullable=True)
@@ -53,7 +53,7 @@ class IncidentDB(Base):
     
     # Additional data
     tags = Column(JSON, default=list)
-    custom_metadata = Column(JSON, default=dict)  # CHANGED: metadata → custom_metadata
+    incident_metadata = Column(JSON, default=dict)  # Changed from 'metadata' to avoid SQLAlchemy conflict
     affected_users = Column(Integer, default=0)
     
     # Timeline/Resolution
@@ -66,17 +66,6 @@ class IncidentDB(Base):
         Index('ix_incidents_severity', 'severity'),
         Index('ix_incidents_status', 'status'),
     )
-    
-    # Compatibility property - maps custom_metadata to metadata for API
-    @property
-    def metadata(self):
-        """Get metadata for API compatibility"""
-        return self.custom_metadata
-    
-    @metadata.setter
-    def metadata(self, value):
-        """Set metadata for API compatibility"""
-        self.custom_metadata = value
 
 # Pydantic Models for API
 class IncidentBase(BaseModel):
@@ -88,7 +77,7 @@ class IncidentBase(BaseModel):
     component: Optional[str] = None
     agent_id: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    incident_metadata: Dict[str, Any] = Field(default_factory=dict)  # Changed from 'metadata'
     affected_users: int = 0
 
 class IncidentCreate(IncidentBase):
@@ -103,7 +92,7 @@ class IncidentUpdate(BaseModel):
     root_cause: Optional[str] = None
     resolution: Optional[str] = None
     tags: Optional[List[str]] = None
-    metadata: Optional[Dict[str, Any]] = None
+    incident_metadata: Optional[Dict[str, Any]] = None  # Changed from 'metadata'
 
 class IncidentResponse(IncidentBase):
     id: str
