@@ -147,7 +147,7 @@ class NotificationTemplateBase(BaseModel):
     fallback_template: Optional[str] = None
     
     # Formatting
-    format: str = Field("markdown", regex="^(plaintext|markdown|html|slack|teams)$")
+    format: str = Field("markdown", pattern="^(plaintext|markdown|html|slack|teams)$")  # FIXED: regex→pattern
     color_map: Dict[str, str] = Field(default_factory=dict)  # Severity → color
     
     # Variables
@@ -180,8 +180,8 @@ class Webhook(WebhookBase):
     
     # Owner and scope
     owner_id: Optional[str] = None
-    owner_type: str = Field("system", regex="^(system|user|team|organization)$")
-    scope: str = Field("global", regex="^(global|organization|project|user)$")
+    owner_type: str = Field("system", pattern="^(system|user|team|organization)$")  # FIXED: regex→pattern
+    scope: str = Field("global", pattern="^(global|organization|project|user)$")  # FIXED: regex→pattern
     
     # Statistics
     total_deliveries: int = 0
@@ -268,9 +268,9 @@ class NotificationEvent(BaseModel):
     event_type: WebhookEventType
     
     # Source
-    source_system: str = Field("arf", regex="^(arf|external|integration)$")
+    source_system: str = Field("arf", pattern="^(arf|external|integration)$")  # FIXED: regex→pattern
     source_id: str  # e.g., incident_id, policy_id, rollback_id
-    source_type: str = Field(..., regex="^(incident|policy|rollback|agent|system)$")
+    source_type: str = Field(..., pattern="^(incident|policy|rollback|agent|system)$")  # FIXED: regex→pattern
     
     # Context
     context: Dict[str, Any] = Field(default_factory=dict)
@@ -308,7 +308,7 @@ class Notification(BaseModel):
     
     # Recipients
     recipient: Optional[str] = None  # email, phone, user_id, channel_id
-    recipient_type: str = Field("system", regex="^(user|team|channel|email|phone|webhook)$")
+    recipient_type: str = Field("system", pattern="^(user|team|channel|email|phone|webhook)$")  # FIXED: regex→pattern
     
     # Delivery
     status: WebhookStatus = WebhookStatus.PENDING
@@ -359,7 +359,7 @@ class NotificationTemplateUpdate(BaseModel):
     description: Optional[str] = None
     body_template: Optional[str] = None
     subject_template: Optional[str] = None
-    format: Optional[str] = Field(None, regex="^(plaintext|markdown|html|slack|teams)$")
+    format: Optional[str] = Field(None, pattern="^(plaintext|markdown|html|slack|teams)$")  # FIXED: regex→pattern
     is_default: Optional[bool] = None
     is_active: Optional[bool] = None
     tags: Optional[List[str]] = None
