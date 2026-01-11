@@ -13,18 +13,34 @@ from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import re  # Added missing import
+import time  # Added missing import
 
 import aiosmtplib
 from jinja2 import Environment, BaseLoader, Template
 
 from src.models.webhook import (
     EmailConfiguration, Notification, NotificationPriority, NotificationChannel,
-    IncidentEventPayload, PolicyEventPayload, RollbackEventPayload, SystemEventPayload,
-    WebhookEventType
+    IncidentEventPayload, PolicyEventPayload, RollbackEventPayload, SystemEventPayload
 )
+# Removed WebhookEventType import - it's not defined in webhook.py
+# We'll define it locally or use string literals
+
 from src.integrations.base import BaseIntegration, IntegrationType, IntegrationStatus
 
 logger = logging.getLogger(__name__)
+
+# Define WebhookEventType locally since it's not in webhook.py
+class WebhookEventType:
+    INCIDENT_CREATED = "incident_created"
+    INCIDENT_UPDATED = "incident_updated"
+    INCIDENT_RESOLVED = "incident_resolved"
+    POLICY_EVALUATED = "policy_evaluated"
+    POLICY_TRIGGERED = "policy_triggered"
+    ROLLBACK_EXECUTED = "rollback_executed"
+    ROLLBACK_FAILED = "rollback_failed"
+    SYSTEM_HEALTH_CHANGE = "system_health_change"
+    CUSTOM_EVENT = "custom_event"
 
 class EmailIntegration(BaseIntegration):
     """SMTP email integration"""
@@ -109,7 +125,6 @@ class EmailIntegration(BaseIntegration):
                 return False
             
             # Validate email format
-            import re
             email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
             if not re.match(email_regex, self.config.sender_email):
                 logger.error(f"Invalid sender email: {self.config.sender_email}")
@@ -127,7 +142,6 @@ class EmailIntegration(BaseIntegration):
     
     async def send_notification(self, notification: Notification) -> Dict[str, Any]:
         """Send notification via email"""
-        import time
         start_time = time.time()
         
         try:
@@ -228,17 +242,17 @@ class EmailIntegration(BaseIntegration):
         
         prefix = prefix_map.get(notification.priority, "")
         
-        if event_type == WebhookEventType.INCIDENT_CREATED.value:
+        if event_type == WebhookEventType.INCIDENT_CREATED:
             return f"{prefix}New Incident: {notification.metadata.get('source_id', 'Unknown')}"
-        elif event_type == WebhookEventType.INCIDENT_UPDATED.value:
+        elif event_type == WebhookEventType.INCIDENT_UPDATED:
             return f"{prefix}Incident Updated: {notification.metadata.get('source_id', 'Unknown')}"
-        elif event_type == WebhookEventType.INCIDENT_RESOLVED.value:
+        elif event_type == WebhookEventType.INCIDENT_RESOLVED:
             return f"[RESOLVED] Incident Resolved: {notification.metadata.get('source_id', 'Unknown')}"
-        elif event_type == WebhookEventType.POLICY_TRIGGERED.value:
+        elif event_type == WebhookEventType.POLICY_TRIGGERED:
             return f"{prefix}Policy Triggered"
-        elif event_type == WebhookEventType.ROLLBACK_EXECUTED.value:
+        elif event_type == WebhookEventType.ROLLBACK_EXECUTED:
             return f"{prefix}Rollback Executed"
-        elif event_type == WebhookEventType.ROLLBACK_FAILED.value:
+        elif event_type == WebhookEventType.ROLLBACK_FAILED:
             return f"{prefix}Rollback Failed"
         else:
             return f"{prefix}ARF Notification"
@@ -460,15 +474,15 @@ class EmailIntegration(BaseIntegration):
     def _get_event_type_display(self, event_type: str) -> str:
         """Get display name for event type"""
         display_map = {
-            WebhookEventType.INCIDENT_CREATED.value: "New Incident Created",
-            WebhookEventType.INCIDENT_UPDATED.value: "Incident Updated",
-            WebhookEventType.INCIDENT_RESOLVED.value: "Incident Resolved",
-            WebhookEventType.POLICY_EVALUATED.value: "Policy Evaluated",
-            WebhookEventType.POLICY_TRIGGERED.value: "Policy Triggered",
-            WebhookEventType.ROLLBACK_EXECUTED.value: "Rollback Executed",
-            WebhookEventType.ROLLBACK_FAILED.value: "Rollback Failed",
-            WebhookEventType.SYSTEM_HEALTH_CHANGE.value: "System Health Change",
-            WebhookEventType.CUSTOM_EVENT.value: "Custom Event"
+            WebhookEventType.INCIDENT_CREATED: "New Incident Created",
+            WebhookEventType.INCIDENT_UPDATED: "Incident Updated",
+            WebhookEventType.INCIDENT_RESOLVED: "Incident Resolved",
+            WebhookEventType.POLICY_EVALUATED: "Policy Evaluated",
+            WebhookEventType.POLICY_TRIGGERED: "Policy Triggered",
+            WebhookEventType.ROLLBACK_EXECUTED: "Rollback Executed",
+            WebhookEventType.ROLLBACK_FAILED: "Rollback Failed",
+            WebhookEventType.SYSTEM_HEALTH_CHANGE: "System Health Change",
+            WebhookEventType.CUSTOM_EVENT: "Custom Event"
         }
         return display_map.get(event_type, "System Notification")
     
