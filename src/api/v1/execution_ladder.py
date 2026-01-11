@@ -317,11 +317,17 @@ async def clone_execution_graph(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e)
         )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to clone graph: {str(e)}"
+        )
 
 @router.get("/nodes/{node_id}/connections")
 async def get_node_connections(
     node_id: str,
-    direction: str = Query("both", regex="^(incoming|outgoing|both)$"),
+    # FIXED: Changed regex= to pattern= for Pydantic v2 compatibility
+    direction: str = Query("both", pattern="^(incoming|outgoing|both)$"),
     current_user: UserDB = Depends(require_operator),
     service = Depends(get_execution_ladder_service)
 ):
