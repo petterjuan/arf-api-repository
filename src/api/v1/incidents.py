@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import json
 import uuid
 
-from src.database import get_db
+from database import get_db  # Import from the file, not the package
 from src.database.redis_client import get_redis
 from src.auth.dependencies import (
     require_viewer, require_operator, require_admin,
