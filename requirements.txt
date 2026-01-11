@@ -95,6 +95,16 @@ healthcheck>=1.3.0  # Changed from 2.0.0 to 1.3.0
 psutil>=5.9.0
 
 # ============================================================================
+# AUTHENTICATION & SECURITY DEPENDENCIES (CRITICAL - UNCOMMENTED)
+# ============================================================================
+
+PyJWT>=2.8.0  # JWT token handling - REQUIRED
+python-jose[cryptography]>=3.3.0  # For JWT with cryptography backend
+passlib[bcrypt]>=1.7.4  # Password hashing - REQUIRED
+cryptography>=41.0.0  # Cryptography primitives - REQUIRED
+email-validator>=2.1.0  # Email validation - REQUIRED
+
+# ============================================================================
 # DEVELOPMENT DEPENDENCIES (Optional)
 # ============================================================================
 
@@ -112,11 +122,3 @@ mypy>=1.0.0
 # Documentation
 mkdocs>=1.4.0
 mkdocs-material>=9.0.0
-
-# ============================================================================
-# SECURITY DEPENDENCIES (Optional)
-# ============================================================================
-
-# cryptography>=41.0.0  # For enhanced security
-# python-jose[cryptography]>=3.3.0  # For JWT
-# passlib[bcrypt]>=1.7.4  # Already included in auth models
