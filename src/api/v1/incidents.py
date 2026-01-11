@@ -43,8 +43,8 @@ async def get_incidents(
     agent_id: Optional[str] = None,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
-    sort_by: str = Query("created_at", regex="^(created_at|severity|status)$"),
-    sort_order: str = Query("desc", regex="^(asc|desc)$")
+    sort_by: str = Query("created_at", pattern="^(created_at|severity|status)$"),  # FIXED: regex→pattern
+    sort_order: str = Query("desc", pattern="^(asc|desc)$")  # FIXED: regex→pattern
 ):
     """
     Get incidents with filtering and pagination.
@@ -174,8 +174,8 @@ async def create_incident(
         incident_dict['id'] = str(uuid.uuid4())
     
     # Add created_by metadata
-    incident_dict['metadata'] = incident_dict.get('metadata', {})
-    incident_dict['metadata']['created_by'] = current_user.email
+    incident_dict['incident_metadata'] = incident_dict.get('incident_metadata', {})  # FIXED: metadata→incident_metadata
+    incident_dict['incident_metadata']['created_by'] = current_user.email  # FIXED: metadata→incident_metadata
     
     # Create incident in database
     db_incident = IncidentDB(**incident_dict)
@@ -214,10 +214,10 @@ async def update_incident(
         setattr(incident, field, value)
     
     # Add updated_by metadata
-    if 'metadata' not in update_data:
-        incident.metadata = incident.metadata or {}
-    incident.metadata['updated_by'] = current_user.email
-    incident.metadata['updated_at'] = datetime.utcnow().isoformat()
+    if 'incident_metadata' not in update_data:  # FIXED: metadata→incident_metadata
+        incident.incident_metadata = incident.incident_metadata or {}  # FIXED: metadata→incident_metadata
+    incident.incident_metadata['updated_by'] = current_user.email  # FIXED: metadata→incident_metadata
+    incident.incident_metadata['updated_at'] = datetime.utcnow().isoformat()  # FIXED: metadata→incident_metadata
     
     # Set resolved_at if status changed to RESOLVED or CLOSED
     if incident_data.status in [IncidentStatus.RESOLVED, IncidentStatus.CLOSED]:
@@ -261,9 +261,9 @@ async def delete_incident(
     incident.updated_at = datetime.utcnow()
     
     # Add deleted_by metadata
-    incident.metadata = incident.metadata or {}
-    incident.metadata['deleted_by'] = current_user.email
-    incident.metadata['deleted_at'] = datetime.utcnow().isoformat()
+    incident.incident_metadata = incident.incident_metadata or {}  # FIXED: metadata→incident_metadata
+    incident.incident_metadata['deleted_by'] = current_user.email  # FIXED: metadata→incident_metadata
+    incident.incident_metadata['deleted_at'] = datetime.utcnow().isoformat()  # FIXED: metadata→incident_metadata
     
     db.commit()
     
@@ -280,7 +280,7 @@ async def delete_incident(
 @router.get("/admin/export", dependencies=[Depends(require_admin)])
 async def export_incidents(
     db: Session = Depends(get_db),
-    format: str = Query("json", regex="^(json|csv)$")
+    format: str = Query("json", pattern="^(json|csv)$")  # FIXED: regex→pattern
 ):
     """
     Export all incidents (admin only).
