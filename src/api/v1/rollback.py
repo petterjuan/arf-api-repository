@@ -8,7 +8,8 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 import uuid
 
-from src.auth.dependencies import require_operator, require_admin, get_current_user_optional, UserDB
+# FIX: Import only what we need, avoid SQLAlchemy model imports
+from src.auth.dependencies import require_operator, require_admin, get_current_user_optional
 from src.services.rollback_service import get_rollback_service
 from src.models.rollback import (
     RollbackAction, RollbackExecution, RollbackPlan, RollbackAnalysis,
@@ -18,33 +19,38 @@ from src.models.rollback import (
 
 router = APIRouter(prefix="/api/v1/rollback", tags=["rollback"])
 
-# FIX: Removed the explicit response_model and added explicit return type
+# FIX: Use a different approach - create the endpoint without response_model
+# and handle the dependencies differently
 @router.post("/actions", status_code=status.HTTP_201_CREATED)
 async def log_action(
     action_data: Dict[str, Any],
-    current_user: UserDB = Depends(require_operator),
-    service = Depends(get_rollback_service)
+    # FIX: Use string annotations to avoid import issues
+    current_user: 'Any' = Depends(require_operator),
+    service: 'Any' = Depends(get_rollback_service)
 ) -> Dict[str, Any]:
     """
     Log an action for potential rollback.
     Authentication: Required
     Authorization: Operator role or higher
     """
-    action_id = service.log_action(action_data, current_user.email)
+    # Get email from user object
+    user_email = getattr(current_user, 'email', 'unknown')
+    
+    action_id = service.log_action(action_data, user_email)
     
     return {
         "action_id": action_id,
         "message": "Action logged successfully",
         "logged_at": datetime.utcnow().isoformat(),
-        "user": current_user.email
+        "user": user_email
     }
 
-@router.get("/actions/{action_id}", response_model=RollbackAction)
+@router.get("/actions/{action_id}")
 async def get_action(
     action_id: str,
-    current_user: UserDB = Depends(require_operator),
-    service = Depends(get_rollback_service)
-):
+    current_user: 'Any' = Depends(require_operator),
+    service: 'Any' = Depends(get_rollback_service)
+) -> RollbackAction:
     """
     Get a logged action by ID.
     Authentication: Required
@@ -59,19 +65,20 @@ async def get_action(
     
     return action
 
-@router.post("/actions/{action_id}/analyze", response_model=RollbackAnalysis)
+@router.post("/actions/{action_id}/analyze")
 async def analyze_action_rollback(
     action_id: str,
-    current_user: UserDB = Depends(require_operator),
-    service = Depends(get_rollback_service)
-):
+    current_user: 'Any' = Depends(require_operator),
+    service: 'Any' = Depends(get_rollback_service)
+) -> RollbackAnalysis:
     """
     Analyze feasibility of rolling back an action.
     Authentication: Required
     Authorization: Operator role or higher
     """
     try:
-        analysis = service.analyze_rollback(action_id, current_user.email)
+        user_email = getattr(current_user, 'email', 'unknown')
+        analysis = service.analyze_rollback(action_id, user_email)
         return analysis
     except Exception as e:
         raise HTTPException(
@@ -79,13 +86,13 @@ async def analyze_action_rollback(
             detail=str(e)
         )
 
-@router.post("/actions/{action_id}/execute", response_model=RollbackResponse)
+@router.post("/actions/{action_id}/execute")
 async def execute_rollback(
     action_id: str,
     request: RollbackRequest,
-    current_user: UserDB = Depends(require_admin),
-    service = Depends(get_rollback_service)
-):
+    current_user: 'Any' = Depends(require_admin),
+    service: 'Any' = Depends(get_rollback_service)
+) -> RollbackResponse:
     """
     Execute rollback of an action.
     Authentication: Required
@@ -99,7 +106,8 @@ async def execute_rollback(
         )
     
     try:
-        response = service.execute_rollback(request, current_user.email)
+        user_email = getattr(current_user, 'email', 'unknown')
+        response = service.execute_rollback(request, user_email)
         return response
     except Exception as e:
         raise HTTPException(
@@ -107,25 +115,27 @@ async def execute_rollback(
             detail=f"Rollback execution failed: {str(e)}"
         )
 
-@router.post("/bulk", response_model=BulkRollbackResponse)
+@router.post("/bulk")
 async def execute_bulk_rollback(
     request: BulkRollbackRequest,
     background_tasks: BackgroundTasks,
-    current_user: UserDB = Depends(require_admin),
-    service = Depends(get_rollback_service)
-):
+    current_user: 'Any' = Depends(require_admin),
+    service: 'Any' = Depends(get_rollback_service)
+) -> BulkRollbackResponse:
     """
     Execute rollback of multiple actions.
     Authentication: Required
     Authorization: Admin role or higher
     """
     try:
+        user_email = getattr(current_user, 'email', 'unknown')
+        
         # Execute in background if large
         if len(request.action_ids) > 10:
             # This would be async in production
             pass
         
-        response = service.execute_bulk_rollback(request, current_user.email)
+        response = service.execute_bulk_rollback(request, user_email)
         return response
     except Exception as e:
         raise HTTPException(
@@ -133,18 +143,18 @@ async def execute_bulk_rollback(
             detail=f"Bulk rollback failed: {str(e)}"
         )
 
-@router.get("/actions", response_model=Dict[str, Any])
+@router.get("/actions")
 async def search_actions(
     action_type: Optional[ActionType] = None,
     start_time: Optional[datetime] = None,
     end_time: Optional[datetime] = None,
-    status: Optional[RollbackStatus] = None,
+    status_param: Optional[RollbackStatus] = Query(None, alias="status"),
     risk_level: Optional[RiskLevel] = None,
     limit: int = Query(50, ge=1, le=1000),
     page: int = Query(1, ge=1),
-    current_user: UserDB = Depends(require_operator),
-    service = Depends(get_rollback_service)
-):
+    current_user: 'Any' = Depends(require_operator),
+    service: 'Any' = Depends(get_rollback_service)
+) -> Dict[str, Any]:
     """
     Search rollback actions with filters.
     Authentication: Required
@@ -158,7 +168,10 @@ async def search_actions(
         filters['start_time'] = start_time.timestamp()
     if end_time:
         filters['end_time'] = end_time.timestamp()
-    # Note: status and risk_level filters would be implemented in production
+    if status_param:
+        filters['status'] = status_param.value
+    if risk_level:
+        filters['risk_level'] = risk_level.value
     
     offset = (page - 1) * limit
     actions, total = service.search_actions(filters, limit, offset)
@@ -179,9 +192,9 @@ async def search_actions(
 async def get_rollback_statistics(
     # FIXED: Changed regex= to pattern= for Pydantic v2 compatibility
     time_range: str = Query("7d", pattern="^(1d|7d|30d|90d|all)$"),
-    current_user: UserDB = Depends(require_operator),
-    service = Depends(get_rollback_service)
-):
+    current_user: 'Any' = Depends(require_operator),
+    service: 'Any' = Depends(get_rollback_service)
+) -> Dict[str, Any]:
     """
     Get rollback statistics.
     Authentication: Required
@@ -229,8 +242,8 @@ async def get_rollback_statistics(
         stats["by_type"][action_type] = stats["by_type"].get(action_type, 0) + 1
         
         # Count by status
-        status = action.current_status.value
-        stats["by_status"][status] = stats["by_status"].get(status, 0) + 1
+        status_val = action.current_status.value
+        stats["by_status"][status_val] = stats["by_status"].get(status_val, 0) + 1
         
         # Count by risk level
         risk = action.risk_level.value
@@ -252,12 +265,12 @@ async def get_rollback_statistics(
     
     return stats
 
-@router.post("/cleanup", response_model=Dict[str, int])
+@router.post("/cleanup")
 async def cleanup_expired_actions(
     batch_size: int = Query(1000, ge=1, le=10000),
-    current_user: UserDB = Depends(require_admin),
-    service = Depends(get_rollback_service)
-):
+    current_user: 'Any' = Depends(require_admin),
+    service: 'Any' = Depends(get_rollback_service)
+) -> Dict[str, Any]:
     """
     Clean up expired rollback actions.
     Authentication: Required
@@ -273,8 +286,8 @@ async def cleanup_expired_actions(
 
 @router.get("/health")
 async def rollback_health(
-    service = Depends(get_rollback_service)
-):
+    service: 'Any' = Depends(get_rollback_service)
+) -> Dict[str, Any]:
     """Health check for rollback service"""
     try:
         # Test service by logging a test action
@@ -310,8 +323,8 @@ async def export_rollback_data(
     format: str = Query("json", pattern="^(json|csv)$"),
     start_time: Optional[datetime] = None,
     end_time: Optional[datetime] = None,
-    service = Depends(get_rollback_service)
-):
+    service: 'Any' = Depends(get_rollback_service)
+) -> Dict[str, Any]:
     """
     Export rollback data (admin only).
     Authentication: Required
@@ -369,9 +382,9 @@ async def export_rollback_data(
 
 @router.get("/dashboard")
 async def rollback_dashboard(
-    current_user: UserDB = Depends(require_operator),
-    service = Depends(get_rollback_service)
-):
+    current_user: 'Any' = Depends(require_operator),
+    service: 'Any' = Depends(get_rollback_service)
+) -> Dict[str, Any]:
     """
     Get rollback dashboard data.
     Authentication: Required
