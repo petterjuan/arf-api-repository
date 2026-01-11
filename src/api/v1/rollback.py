@@ -8,9 +8,9 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 import uuid
 
-# FIX: Import only what we need, avoid SQLAlchemy model imports
+# Import WITHOUT UserDB type - just the dependencies
 from src.auth.dependencies import require_operator, require_admin, get_current_user_optional
-from src.services.rollback_service import get_rollback_service
+from src.services.rollback_service import RollbackService, get_rollback_service
 from src.models.rollback import (
     RollbackAction, RollbackExecution, RollbackPlan, RollbackAnalysis,
     RollbackRequest, RollbackResponse, BulkRollbackRequest, BulkRollbackResponse,
@@ -19,14 +19,11 @@ from src.models.rollback import (
 
 router = APIRouter(prefix="/api/v1/rollback", tags=["rollback"])
 
-# FIX: Use a different approach - create the endpoint without response_model
-# and handle the dependencies differently
 @router.post("/actions", status_code=status.HTTP_201_CREATED)
 async def log_action(
     action_data: Dict[str, Any],
-    # FIX: Use string annotations to avoid import issues
-    current_user: 'Any' = Depends(require_operator),
-    service: 'Any' = Depends(get_rollback_service)
+    current_user = Depends(require_operator),  # No type hint to avoid SQLAlchemy model issues
+    service: RollbackService = Depends(get_rollback_service)
 ) -> Dict[str, Any]:
     """
     Log an action for potential rollback.
@@ -48,8 +45,8 @@ async def log_action(
 @router.get("/actions/{action_id}")
 async def get_action(
     action_id: str,
-    current_user: 'Any' = Depends(require_operator),
-    service: 'Any' = Depends(get_rollback_service)
+    current_user = Depends(require_operator),
+    service: RollbackService = Depends(get_rollback_service)
 ) -> RollbackAction:
     """
     Get a logged action by ID.
@@ -68,8 +65,8 @@ async def get_action(
 @router.post("/actions/{action_id}/analyze")
 async def analyze_action_rollback(
     action_id: str,
-    current_user: 'Any' = Depends(require_operator),
-    service: 'Any' = Depends(get_rollback_service)
+    current_user = Depends(require_operator),
+    service: RollbackService = Depends(get_rollback_service)
 ) -> RollbackAnalysis:
     """
     Analyze feasibility of rolling back an action.
@@ -90,8 +87,8 @@ async def analyze_action_rollback(
 async def execute_rollback(
     action_id: str,
     request: RollbackRequest,
-    current_user: 'Any' = Depends(require_admin),
-    service: 'Any' = Depends(get_rollback_service)
+    current_user = Depends(require_admin),
+    service: RollbackService = Depends(get_rollback_service)
 ) -> RollbackResponse:
     """
     Execute rollback of an action.
@@ -119,8 +116,8 @@ async def execute_rollback(
 async def execute_bulk_rollback(
     request: BulkRollbackRequest,
     background_tasks: BackgroundTasks,
-    current_user: 'Any' = Depends(require_admin),
-    service: 'Any' = Depends(get_rollback_service)
+    current_user = Depends(require_admin),
+    service: RollbackService = Depends(get_rollback_service)
 ) -> BulkRollbackResponse:
     """
     Execute rollback of multiple actions.
@@ -152,8 +149,8 @@ async def search_actions(
     risk_level: Optional[RiskLevel] = None,
     limit: int = Query(50, ge=1, le=1000),
     page: int = Query(1, ge=1),
-    current_user: 'Any' = Depends(require_operator),
-    service: 'Any' = Depends(get_rollback_service)
+    current_user = Depends(require_operator),
+    service: RollbackService = Depends(get_rollback_service)
 ) -> Dict[str, Any]:
     """
     Search rollback actions with filters.
@@ -192,8 +189,8 @@ async def search_actions(
 async def get_rollback_statistics(
     # FIXED: Changed regex= to pattern= for Pydantic v2 compatibility
     time_range: str = Query("7d", pattern="^(1d|7d|30d|90d|all)$"),
-    current_user: 'Any' = Depends(require_operator),
-    service: 'Any' = Depends(get_rollback_service)
+    current_user = Depends(require_operator),
+    service: RollbackService = Depends(get_rollback_service)
 ) -> Dict[str, Any]:
     """
     Get rollback statistics.
@@ -268,8 +265,8 @@ async def get_rollback_statistics(
 @router.post("/cleanup")
 async def cleanup_expired_actions(
     batch_size: int = Query(1000, ge=1, le=10000),
-    current_user: 'Any' = Depends(require_admin),
-    service: 'Any' = Depends(get_rollback_service)
+    current_user = Depends(require_admin),
+    service: RollbackService = Depends(get_rollback_service)
 ) -> Dict[str, Any]:
     """
     Clean up expired rollback actions.
@@ -286,7 +283,7 @@ async def cleanup_expired_actions(
 
 @router.get("/health")
 async def rollback_health(
-    service: 'Any' = Depends(get_rollback_service)
+    service: RollbackService = Depends(get_rollback_service)
 ) -> Dict[str, Any]:
     """Health check for rollback service"""
     try:
@@ -323,7 +320,7 @@ async def export_rollback_data(
     format: str = Query("json", pattern="^(json|csv)$"),
     start_time: Optional[datetime] = None,
     end_time: Optional[datetime] = None,
-    service: 'Any' = Depends(get_rollback_service)
+    service: RollbackService = Depends(get_rollback_service)
 ) -> Dict[str, Any]:
     """
     Export rollback data (admin only).
@@ -382,8 +379,8 @@ async def export_rollback_data(
 
 @router.get("/dashboard")
 async def rollback_dashboard(
-    current_user: 'Any' = Depends(require_operator),
-    service: 'Any' = Depends(get_rollback_service)
+    current_user = Depends(require_operator),
+    service: RollbackService = Depends(get_rollback_service)
 ) -> Dict[str, Any]:
     """
     Get rollback dashboard data.
