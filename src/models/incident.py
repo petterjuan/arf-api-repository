@@ -53,12 +53,21 @@ class IncidentDB(Base):
     
     # Additional data
     tags = Column(JSON, default=list)
-    metadata = Column(JSON, default=dict)
+    incident_metadata = Column(JSON, default=dict)  # CHANGED: metadata → incident_metadata
     affected_users = Column(Integer, default=0)
     
     # Timeline/Resolution
     root_cause = Column(Text, nullable=True)
     resolution = Column(Text, nullable=True)
+    
+    # Property to maintain API compatibility
+    @property
+    def metadata(self):
+        return self.incident_metadata
+    
+    @metadata.setter
+    def metadata(self, value):
+        self.incident_metadata = value
     
     # Indexes (to be created in migrations)
     __table_args__ = (
