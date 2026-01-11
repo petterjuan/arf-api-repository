@@ -20,7 +20,7 @@ from src.database.redis_client import get_redis
 from src.models.webhook import (
     Webhook, WebhookCreate, WebhookUpdate, WebhookStatus, WebhookEventType,
     Notification, NotificationDelivery, NotificationPriority, NotificationChannel,
-    WebhookSecurity, WebhookTestRequest, WebhookTestResponse,
+    WebhookSecurity, TestWebhookRequest, WebhookTestResponse,  # FIXED: WebhookTestRequest → TestWebhookRequest
     SlackConfiguration, TeamsConfiguration, EmailConfiguration,
     PagerDutyConfiguration, NotificationTemplate, NotificationTemplateCreate, NotificationTemplateUpdate
 )
@@ -320,7 +320,7 @@ async def delete_webhook(
 @router.post("/{webhook_id}/test", response_model=Dict[str, Any])
 async def test_webhook(
     webhook_id: str,
-    test_request: Optional[WebhookTestRequest] = None,
+    test_request: Optional[TestWebhookRequest] = None,  # FIXED: WebhookTestRequest → TestWebhookRequest
     current_user: Dict = Depends(require_role(UserRole.OPERATOR)),
     redis_client: redis.Redis = Depends(get_redis)
 ):
@@ -348,8 +348,8 @@ async def test_webhook(
             )
         
         # Use provided test payload or create default
-        if test_request and test_request.test_payload:
-            test_payload = test_request.test_payload
+        if test_request and test_request.payload:  # FIXED: test_payload → payload
+            test_payload = test_request.payload  # FIXED: test_payload → payload
         else:
             test_payload = {
                 "test": True,
