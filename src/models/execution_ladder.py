@@ -108,7 +108,7 @@ class ConditionBase(BaseModel):
     
     # For complex conditions
     sub_conditions: List['ConditionBase'] = Field(default_factory=list)
-    logical_operator: str = Field("AND", regex="^(AND|OR)$")
+    logical_operator: str = Field("AND", pattern="^(AND|OR)$")  # FIXED: regex→pattern
 
 class ActionBase(BaseModel):
     """Action model for policy outcomes"""
@@ -122,7 +122,7 @@ class ActionBase(BaseModel):
     # Notification/Logging
     message_template: Optional[str] = None
     notification_channels: List[str] = Field(default_factory=list)
-    log_level: str = Field("INFO", regex="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
+    log_level: str = Field("INFO", pattern="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")  # FIXED: regex→pattern
 
 # Full Models with Relationships
 class ExecutionNode(ExecutionNodeBase):
@@ -224,7 +224,7 @@ class ExecutionTrace(BaseModel):
     
     # Outcome
     final_action: Optional[ActionBase] = None
-    outcome: str = Field("pending", regex="^(pending|allowed|denied|escalated|rolled_back)$")
+    outcome: str = Field("pending", pattern="^(pending|allowed|denied|escalated|rolled_back)$")  # FIXED: regex→pattern
     
     # Statistics
     total_nodes_visited: int = 0
