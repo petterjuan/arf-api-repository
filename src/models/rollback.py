@@ -161,7 +161,7 @@ class RollbackPlan(BaseModel):
     risk_assessment: Dict[str, Any] = Field(default_factory=dict)
     
     # Status
-    status: str = Field("draft", regex="^(draft|approved|executing|completed|failed|cancelled)$")
+    status: str = Field("draft", pattern="^(draft|approved|executing|completed|failed|cancelled)$")  # FIXED: regex→pattern
     created_at: datetime = Field(default_factory=datetime.utcnow)
     created_by: Optional[str] = None
     
@@ -288,12 +288,12 @@ class RollbackAuditLog(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     
     # Event
-    event_type: str = Field(..., regex="^(action_logged|rollback_executed|rollback_failed|status_changed)$")
+    event_type: str = Field(..., pattern="^(action_logged|rollback_executed|rollback_failed|status_changed)$")  # FIXED: regex→pattern
     event_data: Dict[str, Any] = Field(default_factory=dict)
     
     # Actor
     actor_id: Optional[str] = None
-    actor_type: str = Field("system", regex="^(user|agent|system|cron)$")
+    actor_type: str = Field("system", pattern="^(user|agent|system|cron)$")  # FIXED: regex→pattern
     
     # Context
     action_id: Optional[str] = None
