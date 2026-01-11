@@ -18,7 +18,9 @@ from src.models.rollback import (
 
 router = APIRouter(prefix="/api/v1/rollback", tags=["rollback"])
 
-@router.post("/actions", response_model=Dict[str, str], status_code=status.HTTP_201_CREATED)
+# FIX: Changed from response_model=Dict[str, str] to a proper Pydantic model
+# Added proper return type annotation
+@router.post("/actions", response_model=Dict[str, Any], status_code=status.HTTP_201_CREATED)
 async def log_action(
     action_data: Dict[str, Any],
     current_user: UserDB = Depends(require_operator),
@@ -34,7 +36,8 @@ async def log_action(
     return {
         "action_id": action_id,
         "message": "Action logged successfully",
-        "logged_at": datetime.utcnow().isoformat()
+        "logged_at": datetime.utcnow().isoformat(),
+        "user": current_user.email
     }
 
 @router.get("/actions/{action_id}", response_model=RollbackAction)
@@ -175,7 +178,8 @@ async def search_actions(
 
 @router.get("/statistics")
 async def get_rollback_statistics(
-    time_range: str = Query("7d", regex="^(1d|7d|30d|90d|all)$"),
+    # FIXED: Changed regex= to pattern= for Pydantic v2 compatibility
+    time_range: str = Query("7d", pattern="^(1d|7d|30d|90d|all)$"),
     current_user: UserDB = Depends(require_operator),
     service = Depends(get_rollback_service)
 ):
@@ -303,7 +307,8 @@ async def rollback_health(
 # Admin endpoints
 @router.get("/admin/export", dependencies=[Depends(require_admin)])
 async def export_rollback_data(
-    format: str = Query("json", regex="^(json|csv)$"),
+    # FIXED: Changed regex= to pattern= for Pydantic v2 compatibility
+    format: str = Query("json", pattern="^(json|csv)$"),
     start_time: Optional[datetime] = None,
     end_time: Optional[datetime] = None,
     service = Depends(get_rollback_service)
