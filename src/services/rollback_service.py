@@ -14,6 +14,7 @@ from enum import Enum
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, asc, and_, or_, func
 import redis
+from fastapi import Depends
 
 from src.database import get_db
 from src.database.redis_client import get_redis
@@ -806,15 +807,46 @@ class RollbackService:
             "total_resources_cleaned": cleaned_resources
         }
 
-# Singleton instance
-_rollback_service = None
+# ============================================================================
+# FASTAPI DEPENDENCY FUNCTIONS
+# ============================================================================
 
 def get_rollback_service(
-    db_session: Optional[Session] = None,
-    redis_client: Optional[redis.Redis] = None
+    db: Session = Depends(get_db),
+    redis_client: redis.Redis = Depends(get_redis)
 ) -> RollbackService:
-    """Get singleton RollbackService instance"""
-    global _rollback_service
-    if _rollback_service is None:
-        _rollback_service = RollbackService(db_session, redis_client)
-    return _rollback_service
+    """
+    FastAPI dependency for RollbackService.
+    
+    Psychology: Dependency injection - clean separation of concerns.
+    Intention: Provide properly initialized RollbackService with database session.
+    """
+    return RollbackService(db, redis_client)
+
+
+# ============================================================================
+# LEGACY SINGLETON SUPPORT (for backward compatibility)
+# ============================================================================
+
+_rollback_service_singleton = None
+
+def get_rollback_service_singleton() -> RollbackService:
+    """
+    Get singleton RollbackService instance (legacy support).
+    
+    Note: Use get_rollback_service() for FastAPI dependencies instead.
+    """
+    global _rollback_service_singleton
+    if _rollback_service_singleton is None:
+        from src.database import SessionLocal
+        from src.database.redis_client import get_redis as get_redis_client
+        
+        db_session = SessionLocal()
+        try:
+            redis_client = get_redis_client()
+            _rollback_service_singleton = RollbackService(db_session, redis_client)
+        except Exception:
+            db_session.close()
+            raise
+    
+    return _rollback_service_singleton
