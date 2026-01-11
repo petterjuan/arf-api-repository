@@ -4,7 +4,14 @@ Psychology: Factory pattern for creating integration instances.
 Intention: Centralized integration management with consistent interface.
 """
 from typing import Dict, Any, Optional, Type
-from enum import Enum
+
+# Import from base - remove duplicate IntegrationType definition
+from src.integrations.base import (
+    BaseIntegration, 
+    IntegrationType,  # Now imported from base.py
+    IntegrationStatus,
+    IntegrationHealth
+)
 
 # Import models that actually exist in webhook.py
 from src.models.webhook import (
@@ -12,8 +19,6 @@ from src.models.webhook import (
     DiscordConfiguration, PagerDutyConfiguration, OpsGenieConfiguration,
     NotificationChannel
 )
-
-from src.integrations.base import BaseIntegration, IntegrationType
 
 # Import integrations
 from src.integrations.slack_integration import SlackIntegration
@@ -90,7 +95,6 @@ class IntegrationFactory:
             integration = cls.create_integration(integration_type, config_data)
             
             # Test connection
-            from src.integrations.base import IntegrationStatus
             connected = integration.connect()
             
             return {
@@ -152,6 +156,8 @@ class IntegrationFactory:
 __all__ = [
     'BaseIntegration',
     'IntegrationType',
+    'IntegrationStatus',
+    'IntegrationHealth',
     'IntegrationFactory',
     'SlackIntegration',
     'TeamsIntegration',
