@@ -6,11 +6,13 @@ Intention: Centralized integration management with consistent interface.
 from typing import Dict, Any, Optional, Type
 from enum import Enum
 
+# Import models that actually exist in webhook.py
 from src.models.webhook import (
     SlackConfiguration, TeamsConfiguration, EmailConfiguration,
     DiscordConfiguration, PagerDutyConfiguration, OpsGenieConfiguration,
-    NotificationChannel, BaseNotificationConfig
+    NotificationChannel
 )
+
 from src.integrations.base import BaseIntegration, IntegrationType
 
 # Import integrations
