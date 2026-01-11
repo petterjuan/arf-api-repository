@@ -34,7 +34,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GHCR_TOKEN }}  # 🔑 FIXED: Changed from GITHUB_TOKEN to GHCR_TOKEN
       
       - name: Extract metadata (tags, labels) for Docker
         id: meta
@@ -74,22 +74,22 @@ jobs:
       - name: Verify Docker image
         if: steps.build-and-push.outcome == 'success'
         run: |
-          echo "✅ Docker image built successfully"
+          echo "✅ Docker image built and pushed successfully"
           echo "Tags: ${{ steps.meta.outputs.tags }}"
           echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          echo ""
+          echo "📦 Image pushed to GitHub Packages:"
+          echo "https://github.com/${{ github.repository }}/pkgs/container/arf-api-repository"
       
       - name: Handle build failure
         if: steps.build-and-push.outcome == 'failure'
         run: |
-          echo "❌ Docker build failed"
-          echo "This might be a permission issue with GitHub Packages"
-          echo ""
-          echo "To fix:"
-          echo "1. Ensure the repository has 'packages: write' permission"
-          echo "2. Check if GitHub Packages is enabled for the organization"
-          echo "3. Try using a Personal Access Token (PAT) instead of GITHUB_TOKEN"
-          echo ""
-          echo "For now, the code builds successfully - deployment needs configuration."
+          echo "❌ Docker build/push failed"
+          echo "Check the following:"
+          echo "1. GHCR_TOKEN secret is correctly set in repository secrets"
+          echo "2. PAT has 'write:packages' scope"
+          echo "3. Repository has Package write permissions"
+          exit 1
       
       - name: Upload build logs (on failure)
         if: failure()
@@ -117,14 +117,18 @@ jobs:
           echo "- ✅ Execution Ladder (Policy Engine)" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Rollback Capabilities" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Monitoring & Observability" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Webhook & Notification System" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
           if [[ "${{ job.status }}" == "success" ]]; then
-            echo "1. Configure repository permissions for GitHub Packages" >> $GITHUB_STEP_SUMMARY
-            echo "2. Set up deployment to Railway/Render/AWS" >> $GITHUB_STEP_SUMMARY
-            echo "3. Configure environment variables" >> $GITHUB_STEP_SUMMARY
+            echo "🎉 **Deployment Successful!**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+            echo "1. View your container package: https://github.com/${{ github.repository }}/pkgs/container/arf-api-repository" >> $GITHUB_STEP_SUMMARY
+            echo "2. Deploy to Railway: Use railway.json config" >> $GITHUB_STEP_SUMMARY
+            echo "3. Deploy to Render: Use render.yaml config" >> $GITHUB_STEP_SUMMARY
           else
-            echo "1. Fix Docker build/push permissions" >> $GITHUB_STEP_SUMMARY
-            echo "2. Check dependency versions" >> $GITHUB_STEP_SUMMARY
-            echo "3. Review build logs" >> $GITHUB_STEP_SUMMARY
+            echo "### Issues Detected:" >> $GITHUB_STEP_SUMMARY
+            echo "1. Check GHCR_TOKEN permissions" >> $GITHUB_STEP_SUMMARY
+            echo "2. Verify PAT has 'write:packages' scope" >> $GITHUB_STEP_SUMMARY
+            echo "3. Review build logs above" >> $GITHUB_STEP_SUMMARY
           fi
