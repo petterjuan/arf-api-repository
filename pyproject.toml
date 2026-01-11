@@ -9,6 +9,7 @@ dependencies = [
     "pydantic>=2.5.0",
     "python-dotenv>=1.0.0",
     "httpx>=0.25.0",
+    "aiohttp>=3.9.0",  # ADDED: For asynchronous HTTP requests
     "PyJWT>=2.8.0",
     "cryptography>=41.0.0",
     "passlib[bcrypt]>=1.7.4",
