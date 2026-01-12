@@ -4,6 +4,7 @@ This file is automatically discovered by pytest and provides fixtures to all tes
 """
 
 import asyncio
+from datetime import datetime  # ADDED: For mock_user fixture
 from typing import AsyncGenerator, Generator, Dict, Any, Callable
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -19,7 +20,7 @@ from src.auth.dependencies import get_current_user
 # FIXED: Import the correct models from auth.models
 from src.auth.models import UserInDB, UserRole  # CHANGED: User -> UserInDB
 from src.main import app
-from datetime import datetime
+
 # ============================================================================
 # TEST DATABASE CONFIGURATION
 # ============================================================================
@@ -122,7 +123,7 @@ def mock_user() -> UserInDB:
         is_active=True,
         roles=[UserRole.ADMIN],
         hashed_password="hashed_password_for_testing",
-        created_at=datetime.now(),  # Need to import datetime
+        created_at=datetime.now(),
         updated_at=None,
         last_login=None
     )
@@ -140,7 +141,7 @@ def auth_headers(mock_user: UserInDB) -> Dict[str, str]:
 
 
 @pytest.fixture
-def authenticated_client(
+async def authenticated_client(
     client: AsyncClient, mock_user: UserInDB
 ) -> AsyncGenerator[AsyncClient, None]:
     """Create a test client with authenticated user."""
