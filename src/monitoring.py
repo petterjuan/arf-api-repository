@@ -17,9 +17,9 @@ from prometheus_client.openmetrics.exposition import generate_latest as generate
 import redis
 from sqlalchemy import text
 
-from src.database import engine
-from src.database.redis_client import get_redis
-from src.database.neo4j_client import get_neo4j
+from .database import engine
+from .database.redis_client import get_redis
+from .database.neo4j_client import get_neo4j
 
 # Configure structured logging
 logging.basicConfig(
