@@ -4,7 +4,7 @@ This file is automatically discovered by pytest and provides fixtures to all tes
 """
 
 import asyncio
-from typing import AsyncGenerator, Generator, Dict, Any
+from typing import AsyncGenerator, Generator, Dict, Any, Callable
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -37,6 +37,7 @@ TestingSessionLocal = sessionmaker(
 # DATABASE FIXTURES
 # ============================================================================
 
+
 @pytest.fixture(scope="session")
 def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     """Create an instance of the default event loop for the test session."""
@@ -51,9 +52,9 @@ async def setup_test_database() -> AsyncGenerator[None, None]:
     # Create all tables
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    
+
     yield
-    
+
     # Drop all tables
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
@@ -67,14 +68,15 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest.fixture
-def override_get_db(db_session: AsyncSession):
+def override_get_db(db_session: AsyncSession) -> Callable[[], AsyncGenerator[AsyncSession, None]]:
     """Override the get_db dependency to use test database."""
-    async def _override_get_db():
+
+    async def _override_get_db() -> AsyncGenerator[AsyncSession, None]:
         try:
             yield db_session
         finally:
             pass
-    
+
     return _override_get_db
 
 
@@ -82,19 +84,22 @@ def override_get_db(db_session: AsyncSession):
 # APPLICATION CLIENT FIXTURES
 # ============================================================================
 
+
 @pytest.fixture
-async def client(override_get_db) -> AsyncGenerator[AsyncClient, None]:
+async def client(
+    override_get_db: Callable[[], AsyncGenerator[AsyncSession, None]]
+) -> AsyncGenerator[AsyncClient, None]:
     """Create test client with overridden dependencies."""
     # Override database dependency
     app.dependency_overrides[get_db] = override_get_db
-    
+
     # Override Redis dependency with mock
     with patch("src.database.redis_client.get_redis", return_value=AsyncMock()):
         # Override Neo4j dependency with mock
         with patch("src.database.neo4j_client.get_neo4j_driver", return_value=AsyncMock()):
             async with AsyncClient(app=app, base_url="http://test") as ac:
                 yield ac
-    
+
     # Clear overrides
     app.dependency_overrides.clear()
 
@@ -102,6 +107,7 @@ async def client(override_get_db) -> AsyncGenerator[AsyncClient, None]:
 # ============================================================================
 # AUTHENTICATION FIXTURES
 # ============================================================================
+
 
 @pytest.fixture
 def mock_user() -> User:
@@ -113,7 +119,7 @@ def mock_user() -> User:
         full_name="Test User",
         role=UserRole.ADMIN,
         is_active=True,
-        created_at="2024-01-01T00:00:00Z"
+        created_at="2024-01-01T00:00:00Z",
     )
 
 
@@ -124,21 +130,23 @@ def auth_headers(mock_user: User) -> Dict[str, str]:
     # For now, we'll mock the authentication dependency
     return {
         "Authorization": "Bearer test-jwt-token",
-        "X-API-Key": "test-api-key-123"
+        "X-API-Key": "test-api-key-123",
     }
 
 
 @pytest.fixture
-def authenticated_client(client: AsyncClient, mock_user: User) -> AsyncGenerator[AsyncClient, None]:
+def authenticated_client(
+    client: AsyncClient, mock_user: User
+) -> AsyncGenerator[AsyncClient, None]:
     """Create a test client with authenticated user."""
     # Mock the get_current_user dependency
-    async def mock_get_current_user():
+    async def mock_get_current_user() -> User:
         return mock_user
-    
+
     app.dependency_overrides[get_current_user] = mock_get_current_user
-    
+
     yield client
-    
+
     # Clean up
     if get_current_user in app.dependency_overrides:
         del app.dependency_overrides[get_current_user]
@@ -147,6 +155,7 @@ def authenticated_client(client: AsyncClient, mock_user: User) -> AsyncGenerator
 # ============================================================================
 # SERVICE MOCK FIXTURES
 # ============================================================================
+
 
 @pytest.fixture
 def mock_redis() -> AsyncMock:
@@ -167,17 +176,17 @@ def mock_neo4j() -> AsyncMock:
     neo4j_mock = AsyncMock()
     session_mock = AsyncMock()
     transaction_mock = AsyncMock()
-    
+
     # Mock chain: driver.session() -> session.begin_transaction() -> transaction.run()
     transaction_mock.run = AsyncMock(return_value=AsyncMock())
     transaction_mock.commit = AsyncMock()
     transaction_mock.rollback = AsyncMock()
-    
+
     session_mock.begin_transaction = AsyncMock(return_value=transaction_mock)
     session_mock.close = AsyncMock()
-    
+
     neo4j_mock.session = AsyncMock(return_value=session_mock)
-    
+
     return neo4j_mock
 
 
@@ -185,10 +194,9 @@ def mock_neo4j() -> AsyncMock:
 def mock_webhook_service() -> AsyncMock:
     """Create a mock webhook service."""
     webhook_mock = AsyncMock()
-    webhook_mock.send_notification = AsyncMock(return_value={
-        "success": True,
-        "message_id": "test-message-123"
-    })
+    webhook_mock.send_notification = AsyncMock(
+        return_value={"success": True, "message_id": "test-message-123"}
+    )
     webhook_mock.process_webhook_queue = AsyncMock()
     return webhook_mock
 
@@ -196,6 +204,7 @@ def mock_webhook_service() -> AsyncMock:
 # ============================================================================
 # TEST DATA FIXTURES
 # ============================================================================
+
 
 @pytest.fixture
 def test_incident_data() -> Dict[str, Any]:
@@ -208,7 +217,7 @@ def test_incident_data() -> Dict[str, Any]:
         "component": "api",
         "environment": "test",
         "labels": ["test", "automated"],
-        "metadata": {"test": True, "automated": True}
+        "metadata": {"test": True, "automated": True},
     }
 
 
@@ -219,21 +228,17 @@ def test_policy_data() -> Dict[str, Any]:
         "name": "Test Policy",
         "description": "Test policy for execution ladder",
         "conditions": [
-            {
-                "field": "incident.severity",
-                "operator": "equals",
-                "value": "high"
-            }
+            {"field": "incident.severity", "operator": "equals", "value": "high"}
         ],
         "actions": [
             {
                 "type": "notification",
                 "channel": "slack",
-                "message": "High severity incident detected"
+                "message": "High severity incident detected",
             }
         ],
         "priority": 100,
-        "enabled": True
+        "enabled": True,
     }
 
 
@@ -251,9 +256,9 @@ def test_rollback_data() -> Dict[str, Any]:
                 "type": "api_call",
                 "method": "POST",
                 "url": "https://api.example.com/rollback",
-                "payload": {"rollback": True}
+                "payload": {"rollback": True},
             }
-        ]
+        ],
     }
 
 
@@ -269,9 +274,9 @@ def test_webhook_data() -> Dict[str, Any]:
         "config": {
             "channel": "#alerts",
             "username": "ARF Bot",
-            "icon_emoji": ":warning:"
+            "icon_emoji": ":warning:",
         },
-        "enabled": True
+        "enabled": True,
     }
 
 
@@ -279,37 +284,30 @@ def test_webhook_data() -> Dict[str, Any]:
 # TEST CONFIGURATION
 # ============================================================================
 
-def pytest_configure(config):
+
+def pytest_configure(config: pytest.Config) -> None:
     """Configure pytest with custom markers."""
     config.addinivalue_line(
-        "markers",
-        "integration: mark test as integration test (requires external services)"
+        "markers", "integration: mark test as integration test (requires external services)"
     )
-    config.addinivalue_line(
-        "markers",
-        "slow: mark test as slow-running"
-    )
-    config.addinivalue_line(
-        "markers",
-        "auth: mark test as authentication-related"
-    )
-    config.addinivalue_line(
-        "markers",
-        "database: mark test as database-intensive"
-    )
+    config.addinivalue_line("markers", "slow: mark test as slow-running")
+    config.addinivalue_line("markers", "auth: mark test as authentication-related")
+    config.addinivalue_line("markers", "database: mark test as database-intensive")
 
 
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 
-async def assert_status_code(response, expected_code: int):
+
+async def assert_status_code(response: Any, expected_code: int) -> None:
     """Helper to assert HTTP status code with helpful error message."""
-    assert response.status_code == expected_code, \
-        f"Expected status {expected_code}, got {response.status_code}. Response: {response.text}"
+    assert (
+        response.status_code == expected_code
+    ), f"Expected status {expected_code}, got {response.status_code}. Response: {response.text}"
 
 
-async def assert_response_keys(response, expected_keys: list):
+async def assert_response_keys(response: Any, expected_keys: list) -> None:
     """Helper to assert response contains expected keys."""
     data = response.json()
     for key in expected_keys:
