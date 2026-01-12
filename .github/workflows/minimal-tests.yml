@@ -1,7 +1,7 @@
 - name: Validate core imports
   run: |
     echo "Validating core imports..."
-    cat > validate_imports.py << 'EOF'
+    cat > validate_imports.py << 'END_VALIDATION_SCRIPT'
 #!/usr/bin/env python3
 """
 ARF API Import Validation Script
@@ -360,6 +360,6 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-EOF
+END_VALIDATION_SCRIPT
     
     python validate_imports.py
