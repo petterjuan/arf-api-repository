@@ -15,8 +15,9 @@ from src.api.v1.webhooks import router as webhooks_router
 from src.auth.router import router as auth_router
 from src.api.v1.execution_ladder import router as execution_ladder_router
 from src.api.v1.rollback import router as rollback_router
-from src.database import engine, Base
-from src.auth.database_models import UserDB, APIKeyDB, RefreshTokenDB
+
+# Import database with lazy initialization support
+from src.database import engine, Base, init_databases
 
 # Import monitoring components
 from src.monitoring import setup_monitoring, BusinessMetrics, DatabaseMonitor, PerformanceMonitor
@@ -30,8 +31,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Create all tables
-Base.metadata.create_all(bind=engine)
+# Only create tables if we're not in validation mode and not testing
+if not os.getenv("VALIDATION_MODE") and not os.getenv("TESTING"):
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("✅ Database tables created/verified")
+    except Exception as e:
+        logger.warning(f"⚠️ Could not create database tables (may be intentional): {e}")
 
 app = FastAPI(
     title="ARF API",
@@ -234,13 +240,6 @@ async def root():
     except:
         redis_memory = 'unknown'
     
-    # Get service status
-    services_status = {
-        "postgresql": "unknown",
-        "redis": "unknown",
-        "neo4j": "unknown"
-    }
-    
     return {
         "service": "ARF API",
         "version": "1.4.0",
@@ -314,6 +313,17 @@ async def root():
 @app.get("/health")
 async def health():
     """Basic health check endpoint"""
+    # Only check databases if not in validation mode
+    if os.getenv("VALIDATION_MODE"):
+        return {
+            "status": "healthy (validation mode)",
+            "edition": os.getenv("ARF_EDITION", "oss"),
+            "version": "1.4.0",
+            "mode": "validation",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
+    # Normal health check
     return {
         "status": "healthy",
         "edition": os.getenv("ARF_EDITION", "oss"),
@@ -337,6 +347,15 @@ async def health():
 @app.get("/health/detailed")
 async def detailed_health():
     """Detailed health check with individual service status"""
+    # Skip database checks in validation mode
+    if os.getenv("VALIDATION_MODE"):
+        return {
+            "status": "healthy (validation mode)",
+            "timestamp": datetime.utcnow().isoformat(),
+            "mode": "validation",
+            "message": "Running in validation mode - database checks skipped"
+        }
+    
     from src.database.redis_client import redis_client
     from src.database.neo4j_client import driver as neo4j_driver
     from sqlalchemy import text
@@ -416,65 +435,66 @@ async def detailed_health():
             "latency_ms": None
         }
     
-    # Feature health checks
-    try:
-        # Check execution ladder service
-        from src.services.neo4j_service import get_execution_ladder_service
-        ladder_service = get_execution_ladder_service()
-        with ladder_service.driver.session() as session:
-            result = session.run("MATCH (g:ExecutionGraph) RETURN count(g) as graph_count")
-            graph_count = result.single()["graph_count"]
-            
+    # Feature health checks (skip in validation mode)
+    if not os.getenv("TESTING"):
+        try:
+            # Check execution ladder service
+            from src.services.neo4j_service import get_execution_ladder_service
+            ladder_service = get_execution_ladder_service()
+            with ladder_service.driver.session() as session:
+                result = session.run("MATCH (g:ExecutionGraph) RETURN count(g) as graph_count")
+                graph_count = result.single()["graph_count"]
+                
+                health_status["features"]["execution_ladder"] = {
+                    "status": "operational",
+                    "graph_count": graph_count
+                }
+        except Exception as e:
             health_status["features"]["execution_ladder"] = {
-                "status": "operational",
-                "graph_count": graph_count
+                "status": "degraded",
+                "error": str(e)
             }
-    except Exception as e:
-        health_status["features"]["execution_ladder"] = {
-            "status": "degraded",
-            "error": str(e)
-        }
-    
-    try:
-        # Check rollback service
-        from src.services.rollback_service import get_rollback_service
-        rollback_service = get_rollback_service()
-        # Simple test - log a test action
-        test_id = rollback_service.log_action({
-            "action_type": "system_update",
-            "description": "Health check test",
-            "rollback_strategy": "ignore",
-            "ttl_seconds": 60
-        }, "system:health_check")
         
-        health_status["features"]["rollback"] = {
-            "status": "operational",
-            "test_action_id": test_id
-        }
-    except Exception as e:
-        health_status["features"]["rollback"] = {
-            "status": "degraded",
-            "error": str(e)
-        }
-    
-    # Check webhook service
-    try:
-        from src.services.webhook_service import get_webhook_service
-        webhook_service = get_webhook_service()
+        try:
+            # Check rollback service
+            from src.services.rollback_service import get_rollback_service
+            rollback_service = get_rollback_service()
+            # Simple test - log a test action
+            test_id = rollback_service.log_action({
+                "action_type": "system_update",
+                "description": "Health check test",
+                "rollback_strategy": "ignore",
+                "ttl_seconds": 60
+            }, "system:health_check")
+            
+            health_status["features"]["rollback"] = {
+                "status": "operational",
+                "test_action_id": test_id
+            }
+        except Exception as e:
+            health_status["features"]["rollback"] = {
+                "status": "degraded",
+                "error": str(e)
+            }
         
-        # Test webhook service connectivity
-        stats = await webhook_service.get_system_stats()
-        
-        health_status["features"]["webhooks"] = {
-            "status": "operational",
-            "total_webhooks": stats.get("total_webhooks", 0),
-            "active_webhooks": stats.get("active_webhooks", 0)
-        }
-    except Exception as e:
-        health_status["features"]["webhooks"] = {
-            "status": "degraded",
-            "error": str(e)
-        }
+        # Check webhook service
+        try:
+            from src.services.webhook_service import get_webhook_service
+            webhook_service = get_webhook_service()
+            
+            # Test webhook service connectivity
+            stats = await webhook_service.get_system_stats()
+            
+            health_status["features"]["webhooks"] = {
+                "status": "operational",
+                "total_webhooks": stats.get("total_webhooks", 0),
+                "active_webhooks": stats.get("active_webhooks", 0)
+            }
+        except Exception as e:
+            health_status["features"]["webhooks"] = {
+                "status": "degraded",
+                "error": str(e)
+            }
     
     # Check monitoring
     try:
@@ -499,6 +519,14 @@ async def detailed_health():
 @app.get("/health/readiness")
 async def readiness_probe():
     """Kubernetes readiness probe - check critical dependencies"""
+    # Skip in validation mode
+    if os.getenv("VALIDATION_MODE"):
+        return {
+            "status": "ready (validation mode)",
+            "timestamp": datetime.utcnow().isoformat(),
+            "mode": "validation"
+        }
+    
     from src.database.redis_client import redis_client
     from src.database.neo4j_client import driver as neo4j_driver
     from sqlalchemy import text
@@ -558,14 +586,18 @@ async def get_performance_report():
     """Get performance monitoring report"""
     report = performance_monitor.get_performance_report()
     
-    # Add system info
-    import psutil
-    report["system"] = {
-        "cpu_percent": psutil.cpu_percent(interval=1),
-        "memory_percent": psutil.virtual_memory().percent,
-        "disk_usage": psutil.disk_usage('/').percent,
-        "active_connections": len(psutil.net_connections())
-    }
+    # Add system info (skip in validation mode)
+    if not os.getenv("VALIDATION_MODE"):
+        try:
+            import psutil
+            report["system"] = {
+                "cpu_percent": psutil.cpu_percent(interval=1),
+                "memory_percent": psutil.virtual_memory().percent,
+                "disk_usage": psutil.disk_usage('/').percent,
+                "active_connections": len(psutil.net_connections())
+            }
+        except ImportError:
+            report["system"] = {"message": "psutil not available"}
     
     return report
 
@@ -596,7 +628,8 @@ async def get_metrics_summary():
         "business_metrics": 0,
         "system_metrics": 0,
         "webhook_metrics": 0,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat(),
+        "mode": "validation" if os.getenv("VALIDATION_MODE") else "normal"
     }
     
     for line in metrics_text.split('\n'):
@@ -726,6 +759,19 @@ async def system_status():
     """Get comprehensive system status"""
     from src.database.redis_client import redis_client
     
+    # Skip database checks in validation mode
+    if os.getenv("VALIDATION_MODE"):
+        return {
+            "system": {
+                "version": "1.4.0",
+                "environment": os.getenv("ENVIRONMENT", "development"),
+                "edition": os.getenv("ARF_EDITION", "oss"),
+                "mode": "validation",
+                "timestamp": datetime.utcnow().isoformat()
+            },
+            "message": "Running in validation mode - limited functionality"
+        }
+    
     # Get basic counts
     postgres_count = 0
     redis_info = {}
@@ -822,12 +868,17 @@ async def get_incidents_unsecured():
 @app.on_event("startup")
 async def startup_event():
     """Application startup event"""
+    # Initialize databases only if not in validation mode
+    if not os.getenv("VALIDATION_MODE"):
+        init_databases()
+    
     logger.info(f"""
     ╔══════════════════════════════════════════════════════════════╗
     ║                    ARF API v1.4.0 Starting                   ║
     ╠══════════════════════════════════════════════════════════════╣
     ║  Environment: {os.getenv('ENVIRONMENT', 'development'):<49} ║
     ║  Edition: {os.getenv('ARF_EDITION', 'oss'):<52} ║
+    ║  Mode: {os.getenv('VALIDATION_MODE', 'normal'):<54} ║
     ║  Host: {os.getenv('HOST', '0.0.0.0'):<55} ║
     ║  Port: {os.getenv('PORT', '8000'):<55} ║
     ╠══════════════════════════════════════════════════════════════╣
@@ -859,7 +910,8 @@ async def startup_event():
         event_data={
             "version": "1.4.0",
             "environment": os.getenv("ENVIRONMENT", "development"),
-            "edition": os.getenv("ARF_EDITION", "oss")
+            "edition": os.getenv("ARF_EDITION", "oss"),
+            "mode": os.getenv("VALIDATION_MODE", "normal")
         },
         user_id="system"
     )
