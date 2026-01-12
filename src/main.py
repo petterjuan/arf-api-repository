@@ -10,18 +10,18 @@ import os
 from datetime import datetime
 import logging
 
-from src.api.v1 import incidents
-from src.api.v1.webhooks import router as webhooks_router
-from src.auth.router import router as auth_router
-from src.api.v1.execution_ladder import router as execution_ladder_router
-from src.api.v1.rollback import router as rollback_router
+from .api.v1 import incidents
+from .api.v1.webhooks import router as webhooks_router
+from .auth.router import router as auth_router
+from .api.v1.execution_ladder import router as execution_ladder_router
+from .api.v1.rollback import router as rollback_router
 
 # Import database with lazy initialization support
-from src.database import engine, Base, init_databases
+from .database import engine, Base, init_databases
 
 # Import monitoring components
-from src.monitoring import setup_monitoring, BusinessMetrics, DatabaseMonitor, PerformanceMonitor
-from src.middleware.logging import StructuredLoggingMiddleware, BusinessEventLogger
+from .monitoring import setup_monitoring, BusinessMetrics, DatabaseMonitor, PerformanceMonitor
+from .middleware.logging import StructuredLoggingMiddleware, BusinessEventLogger
 
 # Configure logging
 logging.basicConfig(
@@ -231,7 +231,7 @@ app.include_router(webhooks_router)
 @app.get("/")
 async def root():
     """Root endpoint with comprehensive service information"""
-    from src.database.redis_client import redis_client
+    from .database.redis_client import redis_client
     
     # Get basic system info
     try:
@@ -356,8 +356,8 @@ async def detailed_health():
             "message": "Running in validation mode - database checks skipped"
         }
     
-    from src.database.redis_client import redis_client
-    from src.database.neo4j_client import driver as neo4j_driver
+    from .database.redis_client import redis_client
+    from .database.neo4j_client import driver as neo4j_driver
     from sqlalchemy import text
     
     health_status = {
@@ -439,7 +439,7 @@ async def detailed_health():
     if not os.getenv("TESTING"):
         try:
             # Check execution ladder service
-            from src.services.neo4j_service import get_execution_ladder_service
+            from .services.neo4j_service import get_execution_ladder_service
             ladder_service = get_execution_ladder_service()
             with ladder_service.driver.session() as session:
                 result = session.run("MATCH (g:ExecutionGraph) RETURN count(g) as graph_count")
@@ -457,7 +457,7 @@ async def detailed_health():
         
         try:
             # Check rollback service
-            from src.services.rollback_service import get_rollback_service
+            from .services.rollback_service import get_rollback_service
             rollback_service = get_rollback_service()
             # Simple test - log a test action
             test_id = rollback_service.log_action({
@@ -479,7 +479,7 @@ async def detailed_health():
         
         # Check webhook service
         try:
-            from src.services.webhook_service import get_webhook_service
+            from .services.webhook_service import get_webhook_service
             webhook_service = get_webhook_service()
             
             # Test webhook service connectivity
@@ -527,8 +527,8 @@ async def readiness_probe():
             "mode": "validation"
         }
     
-    from src.database.redis_client import redis_client
-    from src.database.neo4j_client import driver as neo4j_driver
+    from .database.redis_client import redis_client
+    from .database.neo4j_client import driver as neo4j_driver
     from sqlalchemy import text
     
     checks = []
@@ -757,7 +757,7 @@ async def api_info():
 @app.get("/status")
 async def system_status():
     """Get comprehensive system status"""
-    from src.database.redis_client import redis_client
+    from .database.redis_client import redis_client
     
     # Skip database checks in validation mode
     if os.getenv("VALIDATION_MODE"):
@@ -799,7 +799,7 @@ async def system_status():
     
     try:
         # Neo4j count
-        from src.database.neo4j_client import driver
+        from .database.neo4j_client import driver
         with driver.session() as session:
             result = session.run("MATCH (n) RETURN count(n) as count")
             neo4j_count = result.single()["count"]
