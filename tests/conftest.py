@@ -19,7 +19,7 @@ from src.auth.dependencies import get_current_user
 # FIXED: Import the correct models from auth.models
 from src.auth.models import UserInDB, UserRole  # CHANGED: User -> UserInDB
 from src.main import app
-
+from datetime import datetime
 # ============================================================================
 # TEST DATABASE CONFIGURATION
 # ============================================================================
