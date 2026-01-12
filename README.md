@@ -61,6 +61,40 @@ This repository is under active development and is intended for:
 - SREs and platform engineers
 - AI teams deploying agent-driven systems in production
 
+# Testing Guide
+
+## Test Structure
+
+The ARF API uses a comprehensive testing strategy:
+
+### Test Types
+1. **Unit Tests** (`@pytest.mark.unit`): Fast, isolated tests without external dependencies
+2. **Integration Tests** (`@pytest.mark.integration`): Tests with real database connections
+3. **Authentication Tests** (`@pytest.mark.auth`): Authentication and authorization tests
+4. **Database Tests** (`@pytest.mark.database`): Database-intensive tests
+
+### Running Tests
+
+#### Local Development
+```bash
+# Install test dependencies
+pip install -e .[dev]
+
+# Run all tests
+pytest
+
+# Run unit tests only
+pytest -m "unit"
+
+# Run integration tests only
+pytest -m "integration"
+
+# Run with coverage report
+pytest --cov=src --cov-report=html
+
+# Run specific test file
+pytest tests/test_auth.py -v
+```
 ---
 
 ## License
