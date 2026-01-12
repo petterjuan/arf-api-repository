@@ -16,31 +16,8 @@ from sqlalchemy.orm import sessionmaker
 from src.database.postgres_client import Base, get_db  # CHANGED THIS LINE
 from src.auth.dependencies import get_current_user
 
-# Try to import from auth.models, fall back to mock if not available
-try:
-    from src.auth.models import User, UserRole
-except ImportError:
-    # Create mock User and UserRole for testing
-    from enum import Enum
-    
-    class UserRole(str, Enum):
-        """Mock UserRole enum for testing."""
-        VIEWER = "viewer"
-        OPERATOR = "operator"
-        ADMIN = "admin"
-        SUPER_ADMIN = "super_admin"
-    
-    class User:
-        """Mock User class for testing."""
-        def __init__(self, **kwargs):
-            self.id = kwargs.get('id', 'test-user-123')
-            self.email = kwargs.get('email', 'test@example.com')
-            self.username = kwargs.get('username', 'testuser')
-            self.full_name = kwargs.get('full_name', 'Test User')
-            self.role = kwargs.get('role', UserRole.ADMIN)
-            self.is_active = kwargs.get('is_active', True)
-            self.created_at = kwargs.get('created_at', '2024-01-01T00:00:00Z')
-
+# FIXED: Import the correct models from auth.models
+from src.auth.models import UserInDB, UserRole  # CHANGED: User -> UserInDB
 from src.main import app
 
 # ============================================================================
@@ -135,21 +112,24 @@ async def client(
 
 
 @pytest.fixture
-def mock_user() -> User:
+def mock_user() -> UserInDB:
     """Create a mock user object."""
-    return User(
+    # Create a UserInDB instance with all required fields
+    return UserInDB(
         id="test-user-123",
         email="test@example.com",
-        username="testuser",
         full_name="Test User",
-        role=UserRole.ADMIN,
         is_active=True,
-        created_at="2024-01-01T00:00:00Z",
+        roles=[UserRole.ADMIN],
+        hashed_password="hashed_password_for_testing",
+        created_at=datetime.now(),  # Need to import datetime
+        updated_at=None,
+        last_login=None
     )
 
 
 @pytest.fixture
-def auth_headers(mock_user: User) -> Dict[str, str]:
+def auth_headers(mock_user: UserInDB) -> Dict[str, str]:
     """Generate authentication headers for tests."""
     # In a real test, you would generate a valid JWT token
     # For now, we'll mock the authentication dependency
@@ -161,11 +141,11 @@ def auth_headers(mock_user: User) -> Dict[str, str]:
 
 @pytest.fixture
 def authenticated_client(
-    client: AsyncClient, mock_user: User
+    client: AsyncClient, mock_user: UserInDB
 ) -> AsyncGenerator[AsyncClient, None]:
     """Create a test client with authenticated user."""
     # Mock the get_current_user dependency
-    async def mock_get_current_user() -> User:
+    async def mock_get_current_user() -> UserInDB:
         return mock_user
 
     app.dependency_overrides[get_current_user] = mock_get_current_user
