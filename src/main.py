@@ -10,7 +10,11 @@ import os
 from datetime import datetime
 import logging
 
-from .api.v1 import incidents
+try:
+    from .api.v1 import incidents
+except ImportError:
+    # Fallback for when running tests or other cases
+    from src.api.v1 import incidents
 from .api.v1.webhooks import router as webhooks_router
 from .auth.router import router as auth_router
 from .api.v1.execution_ladder import router as execution_ladder_router
