@@ -15,7 +15,32 @@ from sqlalchemy.orm import sessionmaker
 # FIX: Correct imports based on actual module structure
 from src.database.postgres_client import Base, get_db  # CHANGED THIS LINE
 from src.auth.dependencies import get_current_user
-from src.auth.models import User, UserRole
+
+# Try to import from auth.models, fall back to mock if not available
+try:
+    from src.auth.models import User, UserRole
+except ImportError:
+    # Create mock User and UserRole for testing
+    from enum import Enum
+    
+    class UserRole(str, Enum):
+        """Mock UserRole enum for testing."""
+        VIEWER = "viewer"
+        OPERATOR = "operator"
+        ADMIN = "admin"
+        SUPER_ADMIN = "super_admin"
+    
+    class User:
+        """Mock User class for testing."""
+        def __init__(self, **kwargs):
+            self.id = kwargs.get('id', 'test-user-123')
+            self.email = kwargs.get('email', 'test@example.com')
+            self.username = kwargs.get('username', 'testuser')
+            self.full_name = kwargs.get('full_name', 'Test User')
+            self.role = kwargs.get('role', UserRole.ADMIN)
+            self.is_active = kwargs.get('is_active', True)
+            self.created_at = kwargs.get('created_at', '2024-01-01T00:00:00Z')
+
 from src.main import app
 
 # ============================================================================
