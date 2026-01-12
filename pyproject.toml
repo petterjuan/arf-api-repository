@@ -68,10 +68,15 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = ["src"]
 
-# Add this to pyproject.toml - bandit configuration
 [tool.bandit]
-# Files to exclude from scanning
 exclude_dirs = [".venv", ".eggs", ".tox", "build", "dist"]
+skips = ["B101"]
+targets = ["src"]
+output_format = "json"
+confidence_level = "HIGH"
+severity_level = "HIGH"
+exclude_dirs = [".venv", ".eggs", ".tox", "build", "dist"]
+
 # Tests to skip
 skips = ["B101"]  # Skip assert_used warning for tests
 
