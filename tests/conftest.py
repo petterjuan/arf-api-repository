@@ -4,7 +4,7 @@ This file is automatically discovered by pytest and provides fixtures to all tes
 """
 
 import asyncio
-from datetime import datetime  # ADDED: For mock_user fixture
+from datetime import datetime
 from typing import AsyncGenerator, Generator, Dict, Any, Callable
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -19,11 +19,11 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 # FIX: Correct imports based on actual module structure
-from src.database.postgres_client import Base, get_db  # CHANGED THIS LINE
+from src.database.postgres_client import Base, get_db
 from src.auth.dependencies import get_current_user
 
 # FIXED: Import the correct models from auth.models
-from src.auth.models import UserInDB, UserRole  # CHANGED: User -> UserInDB
+from src.auth.models import UserInDB, UserRole
 from src.main import app
 
 # ============================================================================
@@ -96,7 +96,7 @@ def override_get_db(db_session: AsyncSession) -> Callable[[], AsyncGenerator[Asy
 @pytest.fixture
 async def client(
     override_get_db: Callable[[], AsyncGenerator[AsyncSession, None]]
-) -> AsyncGenerator[AsyncClient, None]:
+) -> AsyncClient:
     """Create test client with overridden dependencies."""
     # Override database dependency
     app.dependency_overrides[get_db] = override_get_db
@@ -105,9 +105,13 @@ async def client(
     with patch("src.database.redis_client.get_redis", return_value=AsyncMock()):
         # Override Neo4j dependency with mock
         with patch("src.database.neo4j_client.get_neo4j_driver", return_value=AsyncMock()):
+            # FIX: Create and return the client directly, not as a generator
             async with AsyncClient(app=app, base_url="http://test") as ac:
-                yield ac
-
+                # Store it in a variable to return
+                test_client = ac
+                # Yield the client (pytest will handle cleanup after the test)
+                yield test_client
+    
     # Clear overrides
     app.dependency_overrides.clear()
 
@@ -148,7 +152,7 @@ def auth_headers(mock_user: UserInDB) -> Dict[str, str]:
 @pytest.fixture
 async def authenticated_client(
     client: AsyncClient, mock_user: UserInDB
-) -> AsyncGenerator[AsyncClient, None]:
+) -> AsyncClient:
     """Create a test client with authenticated user."""
     # Mock the get_current_user dependency
     async def mock_get_current_user() -> UserInDB:
@@ -156,6 +160,7 @@ async def authenticated_client(
 
     app.dependency_overrides[get_current_user] = mock_get_current_user
 
+    # FIX: Return the client directly
     yield client
 
     # Clean up
