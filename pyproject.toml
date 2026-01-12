@@ -68,28 +68,6 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = ["src"]
 
-[tool.bandit]
-exclude_dirs = [".venv", ".eggs", ".tox", "build", "dist"]
-skips = ["B101"]
-targets = ["src"]
-output_format = "json"
-confidence_level = "HIGH"
-severity_level = "HIGH"
-exclude_dirs = [".venv", ".eggs", ".tox", "build", "dist"]
-
-# Tests to skip
-skips = ["B101"]  # Skip assert_used warning for tests
-
-# Target files to scan
-targets = ["src"]
-
-# Output format
-output_format = "json"
-
-# Security level (LOW, MEDIUM, HIGH)
-confidence_level = "HIGH"
-severity_level = "HIGH"
-
 # ============================================================================
 # TOOL CONFIGURATION
 # ============================================================================
@@ -195,3 +173,27 @@ module = [
     "pydantic.*",
 ]
 ignore_missing_imports = true
+
+# ============================================================================
+# BANDIT SECURITY SCANNER CONFIGURATION
+# ============================================================================
+
+[tool.bandit]
+# Files to exclude from scanning
+exclude_dirs = [".venv", ".eggs", ".tox", "build", "dist", "tests"]
+# Tests to skip
+skips = ["B101"]  # Skip assert_used warning for tests
+# Target files to scan
+targets = ["src"]
+# Output format
+output_format = "json"
+# Security level (LOW, MEDIUM, HIGH)
+confidence_level = "HIGH"
+severity_level = "HIGH"
+# Specific test configuration
+[tool.bandit.assert_used]
+check_typed_function = false
+[tool.bandit.hardcoded_password]
+check_password = true
+[tool.bandit.try_except_pass]
+check_typed_function = false
