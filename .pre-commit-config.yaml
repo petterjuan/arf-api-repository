@@ -54,8 +54,7 @@ repos:
     rev: 1.7.5
     hooks:
       - id: bandit
-        args: ["-c", "pyproject.toml"]
-        files: "^src/"
+        args: ["-c", "pyproject.toml", "-r", "src/"]
         additional_dependencies: [pbr]
   
   - repo: https://github.com/pre-commit/mirrors-prettier
