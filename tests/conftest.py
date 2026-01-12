@@ -12,7 +12,8 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.database.database import Base, get_db
+# FIX: Correct imports based on actual module structure
+from src.database.postgres_client import Base, get_db  # CHANGED THIS LINE
 from src.auth.dependencies import get_current_user
 from src.auth.models import User, UserRole
 from src.main import app
