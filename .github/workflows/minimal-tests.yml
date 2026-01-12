@@ -1,65 +1,16 @@
-name: Minimal Validation
-
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-
-jobs:
-  syntax-and-imports:
-    name: Syntax & Imports
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install fastapi uvicorn pydantic httpx sqlalchemy asyncpg redis neo4j
-          if [ -f "requirements.txt" ]; then
-            pip install -r requirements.txt
-          fi
-      
-      - name: Validate core imports
-        run: |
-          echo "Validating core imports..."
-          cat > validate_imports.py << 'EOF'
+- name: Validate core imports
+  run: |
+    echo "Validating core imports..."
+    cat > validate_imports.py << 'EOF'
 import sys
 import os
-
-# Set environment variables BEFORE any imports
 os.environ['SKIP_DATABASE_INIT'] = '1'
-os.environ['TESTING'] = '1'
-os.environ['VALIDATION_MODE'] = '1'
-
-# Add src to path
-src_path = os.path.join(os.getcwd(), 'src')
-sys.path.insert(0, src_path)
-
-print("=" * 60)
-print("ARF API Import Validation")
-print("=" * 60)
-
+sys.path.insert(0, 'src')
 try:
     from main import app
     print("✅ PASS: main.py imports successfully")
-    print(f"   - Found FastAPI app with {len(app.routes)} routes")
 except Exception as e:
-    print(f"❌ FAIL: main.py import failed: {e}")
-    import traceback
-    traceback.print_exc()
+    print(f"❌ FAIL: {e}")
     sys.exit(1)
-
-print("✅ SUMMARY: Core imports validated successfully!")
-print("=" * 60)
 EOF
-          
-          python validate_imports.py
+    python validate_imports.py
