@@ -7,15 +7,17 @@ import pytest
 from httpx import AsyncClient
 from unittest.mock import patch, AsyncMock
 
+# Mark all tests in this module as async
+pytestmark = pytest.mark.asyncio
+
 # ============================================================================
 # AUTHENTICATION TESTS
 # ============================================================================
 
-@pytest.mark.asyncio
 @pytest.mark.auth
 class TestAuthentication:
     """Test user authentication endpoints."""
-    
+        
     async def test_register_user_success(self, client: AsyncClient):
         """Test successful user registration."""
         user_data = {
