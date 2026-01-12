@@ -13,6 +13,11 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
+# FIX: Add src to path for imports
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+
 # FIX: Correct imports based on actual module structure
 from src.database.postgres_client import Base, get_db  # CHANGED THIS LINE
 from src.auth.dependencies import get_current_user
