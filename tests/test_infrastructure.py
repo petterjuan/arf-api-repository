@@ -1,4 +1,3 @@
-# tests/test_infrastructure.py
 """Test the infrastructure and configuration."""
 import pytest
 import sys
@@ -18,8 +17,8 @@ def test_python_version():
 def test_environment_variables():
     """Test that required environment variables are available for tests."""
     # These should be set in pytest configuration
-    assert os.getenv('TESTING') == '1'
-    assert os.getenv('SKIP_DATABASE_INIT') == '1'
+    assert os.getenv("TESTING") == "1"
+    assert os.getenv("SKIP_DATABASE_INIT") == "1"
     print("✓ Test environment variables are set")
 
 
@@ -29,7 +28,8 @@ def test_imports():
     try:
         from src.main import app
         from src.auth.router import router as auth_router
-        from src.database.database import Base
+        # FIXED: Import from correct module
+        from src.database.postgres_client import Base
         print("✓ Core imports work correctly")
         assert app is not None
         assert auth_router is not None
@@ -50,10 +50,10 @@ def test_database_connections():
     """Test database connection configuration (mocked)."""
     # This would actually test database connections in integration tests
     # For unit tests, we just verify the configuration
-    db_url = os.getenv('DATABASE_URL', '')
-    redis_url = os.getenv('REDIS_URL', '')
-    neo4j_url = os.getenv('NEO4J_URL', '')
-    
+    db_url = os.getenv("DATABASE_URL", "")
+    redis_url = os.getenv("REDIS_URL", "")
+    neo4j_url = os.getenv("NEO4J_URL", "")
+
     # In unit tests, these might be empty
     # In integration tests, they should be set
     print(f"Database URLs configured for testing")
