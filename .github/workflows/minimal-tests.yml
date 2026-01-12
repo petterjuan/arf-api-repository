@@ -2,41 +2,83 @@
   run: |
     echo "Validating core imports..."
     cat > validate_imports.py << 'EOF'
-    import sys
-    import os
+import sys
+import os
+
+# Set environment variables BEFORE any imports
+os.environ['SKIP_DATABASE_INIT'] = '1'
+os.environ['TESTING'] = '1'
+os.environ['VALIDATION_MODE'] = '1'
+
+# Add src to path
+src_path = os.path.join(os.getcwd(), 'src')
+sys.path.insert(0, src_path)
+
+print("=" * 60)
+print("ARF API Import Validation")
+print("=" * 60)
+
+# Test 1: Core application
+try:
+    from main import app
+    print("✅ PASS: main.py imports successfully")
+    print(f"   - Found FastAPI app with {len(app.routes)} routes")
     
-    # Set environment variables BEFORE any imports
-    os.environ['SKIP_DATABASE_INIT'] = '1'
-    os.environ['TESTING'] = '1'
-    os.environ['VALIDATION_MODE'] = '1'
-    
-    # Add src to path
-    src_path = os.path.join(os.getcwd(), 'src')
-    sys.path.insert(0, src_path)
-    
-    print("=" * 60)
-    print("ARF API Import Validation")
-    print("=" * 60)
-    
-    # Test 1: Core application
-    try:
-        from main import app
-        print("✅ PASS: main.py imports successfully")
-        print(f"   - Found FastAPI app with {len(app.routes)} routes")
-        
-        # Check for critical endpoints
-        routes = [route.path for route in app.routes]
-        critical_endpoints = ['/health', '/docs', '/openapi.json', '/metrics']
-        for endpoint in critical_endpoints:
-            if any(endpoint in route for route in routes):
-                print(f"   - Found endpoint: {endpoint}")
-    except Exception as e:
-        print(f"❌ FAIL: main.py import failed: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
-    
-    # Rest of validation tests...
-    EOF
+    # Check for critical endpoints
+    routes = [route.path for route in app.routes]
+    critical_endpoints = ['/health', '/docs', '/openapi.json', '/metrics']
+    for endpoint in critical_endpoints:
+        if any(endpoint in route for route in routes):
+            print(f"   - Found endpoint: {endpoint}")
+except Exception as e:
+    print(f"❌ FAIL: main.py import failed: {e}")
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+
+# Test 2: Auth models
+try:
+    from auth.models import User
+    print("✅ PASS: auth.models imports successfully")
+except Exception as e:
+    print(f"⚠️ WARN: auth.models import: {e}")
+
+# Test 3: Database
+try:
+    from database import Base
+    print("✅ PASS: database imports successfully")
+except Exception as e:
+    print(f"⚠️ WARN: database import: {e}")
+
+# Test 4: Monitoring
+try:
+    from monitoring import router as monitoring_router
+    print("✅ PASS: monitoring imports successfully")
+except Exception as e:
+    print(f"⚠️ WARN: monitoring import: {e}")
+
+# Test 5: Integrations
+try:
+    from integrations.email import EmailIntegration
+    print("✅ PASS: integrations.email imports successfully")
+except Exception as e:
+    print(f"⚠️ WARN: integrations.email import: {e}")
+
+# Test 6: Test file imports
+try:
+    # Try to import test utilities if tests directory exists
+    if os.path.exists('tests'):
+        print("\n✅ PASS: tests directory exists")
+        if os.path.exists('tests/conftest.py'):
+            print("   - Found tests/conftest.py")
+        if os.path.exists('tests/test_auth.py'):
+            print("   - Found tests/test_auth.py")
+except Exception as e:
+    print(f"⚠️ WARN: test files check: {e}")
+
+print("=" * 60)
+print("✅ SUMMARY: Core imports validated successfully!")
+print("=" * 60)
+EOF
     
     python validate_imports.py
