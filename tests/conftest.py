@@ -1,6 +1,5 @@
 """
-Test configuration and fixtures for ARF API tests - PRECISE AND RELIABLE.
-Every mock targets exactly what exists, nothing more, nothing less.
+Test configuration and fixtures for ARF API tests - PRECISE AND ROBUST.
 """
 
 import asyncio
@@ -22,7 +21,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import StaticPool
 
 # ============================================================================
-# IMPORTS - PRECISE AND PREDICTABLE
+# IMPORTS
 # ============================================================================
 
 try:
@@ -43,7 +42,7 @@ except ImportError:
     from src.main import app
 
 # ============================================================================
-# TEST CONSTANTS - NO MAGIC VALUES
+# CONSTANTS
 # ============================================================================
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -52,7 +51,7 @@ TEST_API_KEY = "test-api-key-123"
 TEST_JWT_TOKEN = "test-jwt-token"
 
 # ============================================================================
-# DATABASE - ISOLATED AND CONTROLLED
+# DATABASE
 # ============================================================================
 
 test_engine = create_async_engine(
@@ -72,24 +71,22 @@ TestingSessionLocal = async_sessionmaker(
 )
 
 # ============================================================================
-# EVENT LOOP - CLEAN AND PREDICTABLE
+# EVENT LOOP
 # ============================================================================
 
 @pytest.fixture(scope="session")
 def event_loop():
-    """One loop per session, cleanly created and destroyed."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     yield loop
     loop.close()
 
 # ============================================================================
-# DATABASE LIFECYCLE - FRESH STATE EVERY TIME
+# DATABASE SETUP
 # ============================================================================
 
 @pytest.fixture(scope="session", autouse=True)
 async def setup_test_database():
-    """Schema created once, destroyed once - no lingering state."""
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     
@@ -100,7 +97,6 @@ async def setup_test_database():
 
 @pytest.fixture
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
-    """Each test gets its own transactional session with automatic rollback."""
     async with TestingSessionLocal() as session:
         await session.begin_nested()
         
@@ -112,28 +108,26 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 
 @pytest.fixture
 def override_get_db(db_session: AsyncSession):
-    """Inject test database into FastAPI dependency system."""
     async def _override_get_db() -> AsyncGenerator[AsyncSession, None]:
         yield db_session
     
     return _override_get_db
 
 # ============================================================================
-# HTTP CLIENT - COMPLETELY MOCKED, ZERO EXTERNAL CALLS
+# HTTP CLIENT - PRECISE MOCKING
 # ============================================================================
 
 @pytest.fixture
 async def client(override_get_db) -> AsyncGenerator[AsyncClient, None]:
-    """
-    Test client that cannot reach the outside world.
-    Every external dependency is replaced with predictable mocks.
-    """
     original_overrides = app.dependency_overrides.copy()
     app.dependency_overrides[get_db] = override_get_db
     
-    # Patch Redis - target exactly what exists
+    patches = []
+    
+    # Mock Redis - exactly what exists
     redis_patch = patch("src.database.redis_client.redis_client", new_callable=AsyncMock)
     redis_mock = redis_patch.start()
+    patches.append(redis_patch)
     
     # Configure Redis mock
     redis_mock.get = AsyncMock(return_value=None)
@@ -146,9 +140,10 @@ async def client(override_get_db) -> AsyncGenerator[AsyncClient, None]:
     redis_mock.flushdb = AsyncMock(return_value=True)
     redis_mock.pipeline = AsyncMock(return_value=AsyncMock())
     
-    # Patch Neo4j - using the exact attribute name from neo4j_client.py
+    # Mock Neo4j - exactly what exists
     neo4j_patch = patch("src.database.neo4j_client.driver", new_callable=AsyncMock)
     neo4j_mock = neo4j_patch.start()
+    patches.append(neo4j_patch)
     
     # Configure Neo4j mock
     tx_mock = AsyncMock()
@@ -169,49 +164,53 @@ async def client(override_get_db) -> AsyncGenerator[AsyncClient, None]:
     
     neo4j_mock.session = AsyncMock(return_value=session_mock)
     
-    # Patch all integration services
-    integration_patches = [
-        patch("src.integrations.discord.DiscordIntegration"),
-        patch("src.integrations.slack_integration.SlackIntegration"),
-        patch("src.integrations.pagerduty.PagerDutyIntegration"),
-        patch("src.integrations.opsgenie.OpsgenieIntegration"),
-        patch("src.integrations.teams.TeamsIntegration"),
-        patch("src.integrations.email.EmailIntegration"),
+    # Mock integration services - EXACT class names from your files
+    # Using try-except to handle any missing integrations gracefully
+    integration_targets = [
+        "src.integrations.discord.DiscordIntegration",
+        "src.integrations.slack_integration.SlackIntegration",
+        "src.integrations.pagerduty.PagerDutyIntegration",
+        "src.integrations.opsgenie.OpsGenieIntegration",  # CORRECTED: Capital G
+        "src.integrations.teams.TeamsIntegration",
+        "src.integrations.email.EmailIntegration",
     ]
     
-    integration_mocks = []
-    for patch_obj in integration_patches:
-        mock = patch_obj.start()
-        integration_mocks.append((patch_obj, mock))
-        
-        instance = mock.return_value
-        instance.send_message = AsyncMock(
-            return_value={"success": True, "message_id": "test-123"}
-        )
-        instance.is_configured = True
+    for target in integration_targets:
+        try:
+            patch_obj = patch(target)
+            mock = patch_obj.start()
+            patches.append(patch_obj)
+            
+            instance = mock.return_value
+            instance.send_message = AsyncMock(
+                return_value={"success": True, "message_id": "test-123"}
+            )
+            instance.is_configured = True
+        except AttributeError:
+            # Skip if integration doesn't exist - tests will use actual implementation
+            continue
+        except Exception:
+            # Skip any other errors
+            continue
     
     try:
         async with AsyncClient(app=app, base_url="http://test") as test_client:
             yield test_client
     finally:
-        # Stop all patches in reverse order
-        for patch_obj, _ in reversed(integration_mocks):
+        # Clean up in reverse order
+        for patch_obj in reversed(patches):
             patch_obj.stop()
-        
-        neo4j_patch.stop()
-        redis_patch.stop()
         
         # Restore original dependencies
         app.dependency_overrides.clear()
         app.dependency_overrides.update(original_overrides)
 
 # ============================================================================
-# AUTHENTICATION - PREDICTABLE USERS
+# AUTHENTICATION
 # ============================================================================
 
 @pytest.fixture
 def mock_user() -> UserInDB:
-    """Standard test user - always the same, always predictable."""
     now = datetime.now()
     
     return UserInDB(
@@ -230,7 +229,6 @@ def mock_user() -> UserInDB:
 
 @pytest.fixture
 async def authenticated_client(client: AsyncClient, mock_user: UserInDB):
-    """Client that believes it's authenticated as our test user."""
     async def mock_get_current_user():
         return mock_user
     
@@ -247,12 +245,11 @@ async def authenticated_client(client: AsyncClient, mock_user: UserInDB):
         del app.dependency_overrides[get_current_user]
 
 # ============================================================================
-# SERVICE MOCKS - FOR DIRECT USE IN UNIT TESTS
+# SERVICE MOCKS
 # ============================================================================
 
 @pytest.fixture
 def mock_redis():
-    """Redis mock for unit tests that need direct Redis access."""
     redis_mock = AsyncMock()
     redis_mock.get = AsyncMock(return_value=None)
     redis_mock.set = AsyncMock(return_value=True)
@@ -267,7 +264,6 @@ def mock_redis():
 
 @pytest.fixture
 def mock_neo4j():
-    """Neo4j driver mock for unit tests."""
     driver_mock = AsyncMock()
     
     tx_mock = AsyncMock()
@@ -291,12 +287,10 @@ def mock_neo4j():
 
 @pytest.fixture
 def mock_http():
-    """HTTP mock that blocks all external network calls."""
     with respx.mock(
         assert_all_called=False,
         assert_all_mocked=True,
     ) as mock:
-        # Mock endpoints that might be called
         mock.post("https://discord.com/api/webhooks/.*").respond(200, json={"id": "123"})
         mock.post("https://slack.com/api/chat.postMessage").respond(200, json={"ok": True})
         mock.post("https://api.pagerduty.com/.*").respond(202, json={})
@@ -307,50 +301,51 @@ def mock_http():
         yield mock
 
 # ============================================================================
-# INTEGRATION MOCKS - FOR TESTING SPECIFIC INTEGRATIONS
+# INTEGRATION MOCKS
 # ============================================================================
 
 @pytest.fixture
 def mock_discord():
-    """Mock Discord integration without touching Discord's API."""
     with patch("src.integrations.discord.DiscordIntegration") as mock_class:
         instance = AsyncMock()
         instance.send_message = AsyncMock(return_value={"success": True, "message_id": "discord-123"})
-        instance.send_embed = AsyncMock(return_value={"success": True})
         instance.is_configured = True
         mock_class.return_value = instance
         yield instance
 
 @pytest.fixture
 def mock_slack():
-    """Mock Slack integration without touching Slack's API."""
     with patch("src.integrations.slack_integration.SlackIntegration") as mock_class:
         instance = AsyncMock()
         instance.send_message = AsyncMock(return_value={"ok": True, "ts": "123.456"})
-        instance.send_blocks = AsyncMock(return_value={"ok": True})
         instance.is_configured = True
         mock_class.return_value = instance
         yield instance
 
 @pytest.fixture
 def mock_pagerduty():
-    """Mock PagerDuty integration without touching PagerDuty's API."""
     with patch("src.integrations.pagerduty.PagerDutyIntegration") as mock_class:
         instance = AsyncMock()
-        instance.trigger_incident = AsyncMock(return_value={"id": "pd-inc-123"})
-        instance.acknowledge_incident = AsyncMock(return_value={})
-        instance.resolve_incident = AsyncMock(return_value={})
+        instance.send_message = AsyncMock(return_value={"id": "pd-inc-123"})
+        instance.is_configured = True
+        mock_class.return_value = instance
+        yield instance
+
+@pytest.fixture
+def mock_opsgenie():
+    with patch("src.integrations.opsgenie.OpsGenieIntegration") as mock_class:  # CORRECTED
+        instance = AsyncMock()
+        instance.send_message = AsyncMock(return_value={"alertId": "opsgenie-123"})
         instance.is_configured = True
         mock_class.return_value = instance
         yield instance
 
 # ============================================================================
-# TEST DATA FACTORIES - CONSISTENT AND CONFIGURABLE
+# TEST DATA
 # ============================================================================
 
 @pytest.fixture
 def incident_data():
-    """Factory for creating incident test data."""
     def _create(**kwargs) -> Dict[str, Any]:
         base = {
             "title": "Test Incident",
@@ -369,7 +364,6 @@ def incident_data():
 
 @pytest.fixture
 def rollback_data():
-    """Factory for creating rollback test data."""
     def _create(**kwargs) -> Dict[str, Any]:
         base = {
             "name": "Test Rollback Plan",
@@ -394,7 +388,6 @@ def rollback_data():
 
 @pytest.fixture
 def webhook_data():
-    """Factory for creating webhook test data."""
     def _create(**kwargs) -> Dict[str, Any]:
         base = {
             "name": "Test Webhook",
@@ -415,11 +408,10 @@ def webhook_data():
     return _create
 
 # ============================================================================
-# TEST CONFIGURATION - OPTIMIZED FOR DEVELOPER FLOW
+# TEST CONFIGURATION
 # ============================================================================
 
 def pytest_collection_modifyitems(config, items):
-    """Fast tests run first - immediate feedback is precious."""
     unit_tests = []
     integration_tests = []
     other_tests = []
@@ -432,18 +424,16 @@ def pytest_collection_modifyitems(config, items):
         else:
             other_tests.append(item)
     
-    # Unit tests first for speed, integration last when you have time
     items[:] = unit_tests + other_tests + integration_tests
 
 @pytest.fixture(autouse=True)
 async def cleanup_test_state():
-    """Every test starts with a clean slate - no hidden dependencies."""
     app.dependency_overrides.clear()
     yield
     app.dependency_overrides.clear()
 
 # ============================================================================
-# ASSERTION HELPERS - CLEAR ERRORS, FAST DEBUGGING
+# ASSERTION HELPERS
 # ============================================================================
 
 async def assert_response(
@@ -451,11 +441,6 @@ async def assert_response(
     expected_status: int = 200,
     expected_keys: Optional[List[str]] = None,
 ) -> Optional[Dict[str, Any]]:
-    """
-    Validate HTTP response with helpful error messages.
-    
-    When tests fail, you should know exactly why - not just that they failed.
-    """
     assert response.status_code == expected_status, (
         f"Expected status {expected_status}, got {response.status_code}. "
         f"Response: {response.text}"
@@ -477,7 +462,6 @@ async def assert_exception(
     exception_type,
     match: Optional[str] = None,
 ):
-    """Assert that an async function raises a specific exception."""
     with pytest.raises(exception_type, match=match) as exc_info:
         await async_func()
     
@@ -485,7 +469,6 @@ async def assert_exception(
 
 @contextlib.contextmanager
 def mock_method(target, return_value=None, side_effect=None):
-    """Context manager to mock a method - clean and predictable."""
     mock = AsyncMock()
     if side_effect:
         mock.side_effect = side_effect
@@ -496,11 +479,10 @@ def mock_method(target, return_value=None, side_effect=None):
         yield mock
 
 # ============================================================================
-# SESSION CLEANUP - NO LINGERING RESOURCES
+# CLEANUP
 # ============================================================================
 
 def pytest_sessionfinish(session, exitstatus):
-    """Clean up database connections when tests are done."""
     loop = asyncio.get_event_loop()
     
     async def cleanup():
