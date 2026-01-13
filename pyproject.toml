@@ -1,7 +1,6 @@
-# COMPLETE pyproject.toml with test configuration
 [project]
 name = "arf-api"
-version = "1.4.0"  # Updated to match your app version
+version = "1.4.0"
 description = "Agentic Reliability Framework API"
 authors = [{name = "Petter Juan"}]
 readme = "README.md"
@@ -39,6 +38,7 @@ dependencies = [
     "prometheus-client>=0.17.0",
     "psutil>=5.9.0",
     "healthcheck>=1.3.0",
+    # Optional dependencies moved to optional dependencies
 ]
 
 [project.optional-dependencies]
@@ -49,16 +49,40 @@ dev = [
     "pytest-xdist>=3.5.0",
     "pytest-postgresql>=5.0.0",
     "pytest-redis>=2.0.0",
+    "respx>=0.20.0",  # ADDED: HTTP mocking for tests
     "bandit>=1.7.5",
     "black>=23.11.0",
     "isort>=5.12.0",
     "mypy>=1.7.0",
     "pre-commit>=3.5.0",
+    "flake8>=6.0.0",
 ]
 docs = [
     "mkdocs>=1.5.0",
     "mkdocs-material>=9.5.0",
     "mkdocstrings[python]>=0.24.0",
+]
+monitoring = [
+    "structlog>=23.0.0",
+    "python-json-logger>=2.0.0",
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-instrumentation-fastapi>=0.41b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.41b0",
+    "opentelemetry-exporter-prometheus>=0.60b0",
+    "pyinstrument>=4.0.0",
+    "memory-profiler>=0.60.0",
+]
+database = [
+    "alembic>=1.13.0",
+    "psycopg2-binary>=2.9.0",
+    "anyio>=4.0.0",
+]
+utils = [
+    "orjson>=3.9.0",
+    "uuid>=1.30",
+    "networkx>=3.0",
+    "pydantic-settings>=2.0.0",
 ]
 
 [build-system]
@@ -77,12 +101,13 @@ testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-asyncio_mode = "auto"  # CRITICAL FIX: Enables auto async test detection
+asyncio_mode = "auto"
 addopts = [
     "-v",
     "--tb=short",
     "--strict-markers",
     "--disable-warnings",
+    "-p", "tests.conftest",  # Ensure conftest is loaded
 ]
 markers = [
     "unit: mark test as unit test",
@@ -90,10 +115,12 @@ markers = [
     "slow: mark test as slow-running",
     "auth: mark test as authentication-related",
     "database: mark test as database-intensive",
+    "requires_respx: mark test that requires respx mocking",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::UserWarning",
+    "ignore::pytest.PytestUnhandledThreadExceptionWarning",
 ]
 
 [tool.coverage.run]
@@ -103,8 +130,10 @@ omit = [
     "*/migrations/*",
     "*/__pycache__/*",
     "*/alembic/*",
+    "*/conftest.py",
 ]
 branch = true
+parallel = true
 
 [tool.coverage.report]
 exclude_lines = [
@@ -118,11 +147,17 @@ exclude_lines = [
     "except:",
     "except Exception:",
     "pass",
+    "# type: ignore",
 ]
 precision = 2
+show_missing = true
 
 [tool.coverage.html]
 directory = "coverage_html"
+title = "ARF API Coverage Report"
+
+[tool.coverage.xml]
+output = "coverage.xml"
 
 [tool.black]
 line-length = 88
@@ -140,6 +175,7 @@ extend-exclude = '''
   | buck-out
   | build
   | dist
+  | tests
 )/
 '''
 
@@ -151,6 +187,7 @@ include_trailing_comma = true
 force_grid_wrap = 0
 use_parentheses = true
 ensure_newline_before_comments = true
+known_first_party = ["src"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -166,35 +203,55 @@ warn_unused_ignores = true
 warn_no_return = true
 warn_unreachable = true
 strict_equality = true
+show_error_codes = true
+files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
 module = [
     "sqlalchemy.*",
     "alembic.*",
     "pydantic.*",
+    "respx.*",  # ADDED: Type stubs might not be available
 ]
 ignore_missing_imports = true
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = "E203,W503"
+exclude = [
+    ".git",
+    "__pycache__",
+    ".eggs",
+    "*.egg",
+    ".venv",
+    "venv",
+    "env",
+    ".tox",
+    "build",
+    "dist",
+]
+per-file-ignores = [
+    "tests/*: S101",  # Allow assert statements in tests
+    "__init__.py: F401",  # Allow unused imports in __init__.py
+]
 
 # ============================================================================
 # BANDIT SECURITY SCANNER CONFIGURATION
 # ============================================================================
 
 [tool.bandit]
-# Files to exclude from scanning
-exclude_dirs = [".venv", ".eggs", ".tox", "build", "dist", "tests"]
-# Tests to skip
+exclude_dirs = [".venv", ".eggs", ".tox", "build", "dist"]
 skips = ["B101"]  # Skip assert_used warning for tests
-# Target files to scan
 targets = ["src"]
-# Output format
 output_format = "json"
-# Security level (LOW, MEDIUM, HIGH)
 confidence_level = "HIGH"
 severity_level = "HIGH"
-# Specific test configuration
+
 [tool.bandit.assert_used]
 check_typed_function = false
+
 [tool.bandit.hardcoded_password]
 check_password = true
+
 [tool.bandit.try_except_pass]
 check_typed_function = false
