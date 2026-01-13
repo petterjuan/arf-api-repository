@@ -77,6 +77,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+asyncio_mode = "auto"  # CRITICAL FIX: Enables auto async test detection
 addopts = [
     "-v",
     "--tb=short",
