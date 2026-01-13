@@ -38,7 +38,6 @@ dependencies = [
     "prometheus-client>=0.17.0",
     "psutil>=5.9.0",
     "healthcheck>=1.3.0",
-    # Optional dependencies moved to optional dependencies
 ]
 
 [project.optional-dependencies]
@@ -49,7 +48,7 @@ dev = [
     "pytest-xdist>=3.5.0",
     "pytest-postgresql>=5.0.0",
     "pytest-redis>=2.0.0",
-    "respx>=0.20.0",  # ADDED: HTTP mocking for tests
+    "respx>=0.20.0",
     "bandit>=1.7.5",
     "black>=23.11.0",
     "isort>=5.12.0",
@@ -93,35 +92,8 @@ build-backend = "setuptools.build_meta"
 packages = ["src"]
 
 # ============================================================================
-# TOOL CONFIGURATION
+# CODE QUALITY TOOLS - CLEAR AND SEPARATE FROM TESTING
 # ============================================================================
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py", "*_test.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-asyncio_mode = "auto"
-addopts = [
-    "-v",
-    "--tb=short",
-    "--strict-markers",
-    "--disable-warnings",
-    "-p", "tests.conftest",  # Ensure conftest is loaded
-]
-markers = [
-    "unit: mark test as unit test",
-    "integration: mark test as integration test (requires external services)",
-    "slow: mark test as slow-running",
-    "auth: mark test as authentication-related",
-    "database: mark test as database-intensive",
-    "requires_respx: mark test that requires respx mocking",
-]
-filterwarnings = [
-    "ignore::DeprecationWarning",
-    "ignore::UserWarning",
-    "ignore::pytest.PytestUnhandledThreadExceptionWarning",
-]
 
 [tool.coverage.run]
 source = ["src"]
@@ -175,7 +147,6 @@ extend-exclude = '''
   | buck-out
   | build
   | dist
-  | tests
 )/
 '''
 
@@ -204,14 +175,13 @@ warn_no_return = true
 warn_unreachable = true
 strict_equality = true
 show_error_codes = true
-files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
 module = [
     "sqlalchemy.*",
     "alembic.*",
     "pydantic.*",
-    "respx.*",  # ADDED: Type stubs might not be available
+    "respx.*",
 ]
 ignore_missing_imports = true
 
@@ -231,17 +201,17 @@ exclude = [
     "dist",
 ]
 per-file-ignores = [
-    "tests/*: S101",  # Allow assert statements in tests
-    "__init__.py: F401",  # Allow unused imports in __init__.py
+    "tests/*: S101",
+    "__init__.py: F401",
 ]
 
 # ============================================================================
-# BANDIT SECURITY SCANNER CONFIGURATION
+# SECURITY SCANNING - PROTECTING THE CODEBASE
 # ============================================================================
 
 [tool.bandit]
 exclude_dirs = [".venv", ".eggs", ".tox", "build", "dist"]
-skips = ["B101"]  # Skip assert_used warning for tests
+skips = ["B101"]
 targets = ["src"]
 output_format = "json"
 confidence_level = "HIGH"
