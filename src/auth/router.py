@@ -5,10 +5,10 @@ Intention: Provide full authentication lifecycle management.
 """
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.orm import Session
-from sqlalchemy import func  # FIX: Added missing import
-from typing import List, Optional  # FIX: Added Optional import
-from datetime import timedelta  # FIX: Added timedelta import
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
+from typing import List, Optional
+from datetime import timedelta
 import uuid
 
 from src.database import get_db
@@ -21,7 +21,7 @@ from src.auth.models import (
 )
 from src.auth.database_models import UserDB, APIKeyDB, RefreshTokenDB
 from src.auth.dependencies import (
-    AuthError,  # FIX: Added dependency imports
+    AuthError,
     require_viewer, require_operator, require_admin,
     require_super_admin
 )
@@ -36,12 +36,15 @@ def generate_api_key() -> str:
 @router.post("/register", response_model=UserInDB, status_code=status.HTTP_201_CREATED)
 async def register_user(
     user_data: UserCreate,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     background_tasks: BackgroundTasks = None
 ):
     """Register a new user"""
-    # Check if user already exists
-    existing_user = db.query(UserDB).filter(UserDB.email == user_data.email).first()
+    # Check if user already exists using SQLAlchemy 2.0 async pattern
+    stmt = select(UserDB).where(UserDB.email == user_data.email)
+    result = await db.execute(stmt)
+    existing_user = result.scalar_one_or_none()
+    
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -59,8 +62,8 @@ async def register_user(
     )
     
     db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
+    await db.commit()
+    await db.refresh(db_user)
     
     # In production: Send verification email via background task
     if background_tasks:
@@ -72,14 +75,16 @@ async def register_user(
 @router.post("/login", response_model=Token)
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Login with username (email) and password"""
-    # Find user
-    user = db.query(UserDB).filter(
+    # Find user using SQLAlchemy 2.0 async pattern
+    stmt = select(UserDB).where(
         UserDB.email == form_data.username,
         UserDB.is_active == True
-    ).first()
+    )
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
     
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
@@ -90,7 +95,7 @@ async def login(
     
     # Update last login
     user.last_login = func.now()
-    db.commit()
+    await db.commit()
     
     # Create tokens
     access_token = create_access_token(
@@ -112,7 +117,7 @@ async def login(
 @router.post("/refresh", response_model=Token)
 async def refresh_token(
     refresh_token: str,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Refresh access token using refresh token"""
     # Validate refresh token
@@ -140,7 +145,7 @@ async def refresh_token(
 async def create_api_key(
     api_key_data: APIKeyCreate,
     current_user: UserDB = Depends(require_operator),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Create a new API key"""
     # Generate API key
@@ -159,8 +164,8 @@ async def create_api_key(
     )
     
     db.add(db_api_key)
-    db.commit()
-    db.refresh(db_api_key)
+    await db.commit()
+    await db.refresh(db_api_key)
     
     # Return the raw key only once (client should store it securely)
     response = APIKeyInDB.model_validate(db_api_key)
@@ -171,12 +176,12 @@ async def create_api_key(
 @router.get("/api-keys", response_model=List[APIKeyInDB])
 async def list_api_keys(
     current_user: UserDB = Depends(require_operator),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """List API keys for current user"""
-    api_keys = db.query(APIKeyDB).filter(
-        APIKeyDB.owner_id == current_user.id
-    ).all()
+    stmt = select(APIKeyDB).where(APIKeyDB.owner_id == current_user.id)
+    result = await db.execute(stmt)
+    api_keys = result.scalars().all()
     
     return api_keys
 
@@ -184,13 +189,15 @@ async def list_api_keys(
 async def revoke_api_key(
     key_id: str,
     current_user: UserDB = Depends(require_operator),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Revoke an API key"""
-    api_key = db.query(APIKeyDB).filter(
+    stmt = select(APIKeyDB).where(
         APIKeyDB.id == key_id,
         APIKeyDB.owner_id == current_user.id
-    ).first()
+    )
+    result = await db.execute(stmt)
+    api_key = result.scalar_one_or_none()
     
     if not api_key:
         raise HTTPException(
@@ -199,7 +206,7 @@ async def revoke_api_key(
         )
     
     api_key.is_active = False
-    db.commit()
+    await db.commit()
 
 @router.get("/me", response_model=UserInDB)
 async def get_current_user_info(
@@ -212,7 +219,7 @@ async def get_current_user_info(
 async def logout(
     refresh_token: Optional[str] = None,
     current_user: UserDB = Depends(require_viewer),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Logout user (revoke refresh token)"""
     if refresh_token:
@@ -226,10 +233,13 @@ async def logout(
 @router.get("/users", response_model=List[UserInDB])
 async def list_users(
     current_user: UserDB = Depends(require_admin),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """List all users (admin only)"""
-    users = db.query(UserDB).all()
+    stmt = select(UserDB)
+    result = await db.execute(stmt)
+    users = result.scalars().all()
+    
     return users
 
 @router.patch("/users/{user_id}/roles")
@@ -237,7 +247,7 @@ async def update_user_roles(
     user_id: str,
     roles: List[UserRole],
     current_user: UserDB = Depends(require_admin),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Update user roles (admin only)"""
     if UserRole.SUPER_ADMIN in roles and UserRole.SUPER_ADMIN not in current_user.roles:
@@ -246,7 +256,10 @@ async def update_user_roles(
             detail="Only super admins can assign super admin role"
         )
     
-    user = db.query(UserDB).filter(UserDB.id == user_id).first()
+    stmt = select(UserDB).where(UserDB.id == user_id)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+    
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -255,6 +268,6 @@ async def update_user_roles(
     
     user.roles = [role.value for role in roles]
     user.updated_at = func.now()
-    db.commit()
+    await db.commit()
     
     return {"message": "User roles updated successfully"}
