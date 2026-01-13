@@ -89,14 +89,14 @@ def override_get_db(db_session: AsyncSession) -> Callable[[], AsyncGenerator[Asy
 
 
 # ============================================================================
-# APPLICATION CLIENT FIXTURES
+# APPLICATION CLIENT FIXTURES - FIXED VERSION
 # ============================================================================
 
 
 @pytest.fixture
 async def client(
     override_get_db: Callable[[], AsyncGenerator[AsyncSession, None]]
-) -> AsyncClient:
+) -> AsyncGenerator[AsyncClient, None]:
     """Create test client with overridden dependencies."""
     # Override database dependency
     app.dependency_overrides[get_db] = override_get_db
@@ -105,11 +105,8 @@ async def client(
     with patch("src.database.redis_client.get_redis", return_value=AsyncMock()):
         # Override Neo4j dependency with mock
         with patch("src.database.neo4j_client.get_neo4j_driver", return_value=AsyncMock()):
-            # FIX: Create and return the client directly, not as a generator
-            async with AsyncClient(app=app, base_url="http://test") as ac:
-                # Store it in a variable to return
-                test_client = ac
-                # Yield the client (pytest will handle cleanup after the test)
+            # FIXED: Use AsyncClient as context manager within the fixture
+            async with AsyncClient(app=app, base_url="http://test") as test_client:
                 yield test_client
     
     # Clear overrides
@@ -117,7 +114,7 @@ async def client(
 
 
 # ============================================================================
-# AUTHENTICATION FIXTURES
+# AUTHENTICATION FIXTURES - FIXED VERSION
 # ============================================================================
 
 
@@ -152,7 +149,7 @@ def auth_headers(mock_user: UserInDB) -> Dict[str, str]:
 @pytest.fixture
 async def authenticated_client(
     client: AsyncClient, mock_user: UserInDB
-) -> AsyncClient:
+) -> AsyncGenerator[AsyncClient, None]:
     """Create a test client with authenticated user."""
     # Mock the get_current_user dependency
     async def mock_get_current_user() -> UserInDB:
@@ -160,7 +157,7 @@ async def authenticated_client(
 
     app.dependency_overrides[get_current_user] = mock_get_current_user
 
-    # FIX: Return the client directly
+    # FIXED: Return the client directly as async generator
     yield client
 
     # Clean up
