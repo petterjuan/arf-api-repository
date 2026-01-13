@@ -7,6 +7,7 @@ import asyncio
 from datetime import datetime
 from typing import AsyncGenerator, Generator, Dict, Any, Callable
 from unittest.mock import AsyncMock, MagicMock, patch
+import os
 
 import pytest
 from httpx import AsyncClient
@@ -15,7 +16,6 @@ from sqlalchemy.orm import sessionmaker
 
 # FIX: Add src to path for imports
 import sys
-import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 # FIX: Correct imports based on actual module structure
@@ -27,10 +27,15 @@ from src.auth.models import UserInDB, UserRole
 from src.main import app
 
 # ============================================================================
-# TEST DATABASE CONFIGURATION
+# TEST DATABASE CONFIGURATION - UPDATED FOR CI/CD
 # ============================================================================
 
-TEST_DATABASE_URL = "postgresql+asyncpg://test:test@localhost:5432/arf_test"
+# Use environment variable or fallback to test database
+# For CI/CD, we'll use a mock or SQLite in-memory database
+TEST_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL", 
+    "sqlite+aiosqlite:///:memory:"  # Use SQLite in-memory for tests
+)
 TEST_REDIS_URL = "redis://localhost:6379/1"
 TEST_NEO4J_URL = "bolt://localhost:7687"
 
