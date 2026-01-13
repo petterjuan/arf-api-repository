@@ -105,20 +105,33 @@ cryptography>=41.0.0  # Cryptography primitives - REQUIRED
 email-validator>=2.1.0  # Email validation - REQUIRED
 
 # ============================================================================
-# DEVELOPMENT DEPENDENCIES (Optional)
+# DEVELOPMENT & TESTING DEPENDENCIES
 # ============================================================================
 
-# Testing
-pytest>=7.0.0
+# Testing framework
+pytest>=7.4.0
 pytest-asyncio>=0.21.0
-httpx>=0.25.0
+pytest-cov>=4.1.0
+pytest-xdist>=3.5.0
+
+# Test utilities
+respx>=0.20.0  # ADDED: HTTP mocking for tests - REQUIRED FOR TESTS
+pytest-postgresql>=5.0.0  # For PostgreSQL test fixtures
+pytest-redis>=2.0.0  # For Redis test fixtures
+
+# HTTP testing
+httpx>=0.25.0  # Already in core dependencies
 
 # Code quality
-black>=23.0.0
+black>=23.11.0
 isort>=5.12.0
 flake8>=6.0.0
-mypy>=1.0.0
+mypy>=1.7.0
+bandit>=1.7.5  # Security scanner
+
+# Pre-commit hooks
+pre-commit>=3.5.0
 
 # Documentation
-mkdocs>=1.4.0
-mkdocs-material>=9.0.0
+mkdocs>=1.5.0
+mkdocs-material>=9.5.0
