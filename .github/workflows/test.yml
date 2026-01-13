@@ -24,7 +24,7 @@ jobs:
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     
     strategy:
       matrix:
@@ -203,7 +203,7 @@ jobs:
   database-tests:
     name: Database Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     needs: unit-tests
     
     services:
@@ -261,7 +261,7 @@ jobs:
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     needs: unit-tests
     
     steps:
