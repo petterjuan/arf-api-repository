@@ -1,5 +1,5 @@
 """
-Test configuration and fixtures for ARF API tests - WITH MIDDLEWARE FIX.
+Test configuration and fixtures for ARF API tests - PRODUCTION READY.
 """
 
 import asyncio
@@ -114,14 +114,14 @@ def override_get_db(db_session: AsyncSession):
     return _override_get_db
 
 # ============================================================================
-# HTTP CLIENT - WITH MONITORING MIDDLEWARE PATCH
+# HTTP CLIENT - SYNC FOR TESTCLIENT
 # ============================================================================
 
 @pytest.fixture
 def client(override_get_db):
     """
-    Create test client with patched MonitoringMiddleware.
-    The middleware has incorrect signature, so we patch it.
+    Create sync test client for FastAPI.
+    TestClient returns sync responses, not awaitable.
     """
     original_overrides = app.dependency_overrides.copy()
     app.dependency_overrides[get_db] = override_get_db
@@ -194,99 +194,17 @@ def client(override_get_db):
         except Exception:
             continue
     
-    # PATCH THE PROBLEMATIC MIDDLEWARE
-    # Create a correct middleware implementation
-    from starlette.types import ASGIApp, Scope, Receive, Send
-    from fastapi import Request
+    # Create sync test client
+    with TestClient(app) as test_client:
+        yield test_client
     
-    class FixedMonitoringMiddleware:
-        """Fixed version of MonitoringMiddleware with correct signature"""
-        
-        def __init__(self, app: ASGIApp):
-            self.app = app
-        
-        async def __call__(self, scope: Scope, receive: Receive, send: Send):
-            # Only handle HTTP requests
-            if scope["type"] != "http":
-                await self.app(scope, receive, send)
-                return
-            
-            # Create request object
-            request = Request(scope, receive)
-            
-            # Skip metrics for monitoring endpoints
-            if request.url.path in ['/metrics', '/health', '/health/detailed']:
-                await self.app(scope, receive, send)
-                return
-            
-            # Original middleware logic (simplified for tests)
-            async def call_next(request):
-                # Create a custom receive that passes through
-                async def receive_wrapper():
-                    return await receive()
-                
-                # Create a custom send that captures response
-                response_sent = False
-                status_code = 500
-                
-                async def send_wrapper(message):
-                    nonlocal response_sent, status_code
-                    if message["type"] == "http.response.start":
-                        status_code = message["status"]
-                    await send(message)
-                
-                await self.app(scope, receive_wrapper, send_wrapper)
-                
-                # Create mock response
-                class MockResponse:
-                    def __init__(self):
-                        self.status_code = status_code
-                        self.headers = {}
-                
-                return MockResponse()
-            
-            # Call the next middleware/route
-            response = await call_next(request)
-            
-            # Add headers (simplified)
-            response.headers["X-Request-ID"] = request.headers.get("X-Request-ID", "")
-            response.headers["X-Response-Time"] = "0.001s"
-            
-            # Need to recreate the response flow
-            # For testing, we just pass through
-            await self.app(scope, receive, send)
+    # Clean up
+    for patch_obj in reversed(patches):
+        patch_obj.stop()
     
-    # Replace the broken middleware with our fixed version
-    middleware_patch = patch.object(app, 'middleware_stack', create=True)
-    app.middleware_stack = app.middleware_stack  # Ensure it exists
-    
-    # Actually, let's just remove the problematic middleware entirely for tests
-    # by patching the app's middleware to skip MonitoringMiddleware
-    import starlette.applications
-    
-    original_call = app.__call__
-    
-    async def patched_call(scope, receive, send):
-        # Skip MonitoringMiddleware logic
-        await original_call(scope, receive, send)
-    
-    app.__call__ = patched_call
-    
-    try:
-        # Create test client with our patched app
-        with TestClient(app) as test_client:
-            yield test_client
-    finally:
-        # Clean up patches in reverse order
-        # Restore original __call__
-        app.__call__ = original_call
-        
-        for patch_obj in reversed(patches):
-            patch_obj.stop()
-        
-        # Restore original dependencies
-        app.dependency_overrides.clear()
-        app.dependency_overrides.update(original_overrides)
+    # Restore original dependencies
+    app.dependency_overrides.clear()
+    app.dependency_overrides.update(original_overrides)
 
 # ============================================================================
 # AUTHENTICATION
@@ -314,13 +232,13 @@ def mock_user() -> UserInDB:
 def authenticated_client(client, mock_user: UserInDB):
     """
     Create authenticated test client.
+    TestClient is sync, so we don't use async here.
     """
     async def mock_get_current_user():
         return mock_user
     
     app.dependency_overrides[get_current_user] = mock_get_current_user
     
-    # TestClient uses sync interface, but headers work the same
     client.headers.update({
         "Authorization": f"Bearer {TEST_JWT_TOKEN}",
         "X-API-Key": TEST_API_KEY,
@@ -371,21 +289,6 @@ def mock_neo4j():
     
     driver_mock.session = AsyncMock(return_value=session_mock)
     return driver_mock
-
-@pytest.fixture
-def mock_http():
-    with respx.mock(
-        assert_all_called=False,
-        assert_all_mocked=True,
-    ) as mock:
-        mock.post("https://discord.com/api/webhooks/.*").respond(200, json={"id": "123"})
-        mock.post("https://slack.com/api/chat.postMessage").respond(200, json={"ok": True})
-        mock.post("https://api.pagerduty.com/.*").respond(202, json={})
-        mock.post("https://api.opsgenie.com/v2/alerts").respond(202, json={})
-        mock.post("https://outlook.office.com/webhook/.*").respond(200, json={})
-        mock.post("https://smtp.example.com/.*").respond(250, json={})
-        
-        yield mock
 
 # ============================================================================
 # TEST DATA
@@ -475,10 +378,7 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture(autouse=True)
 def cleanup_test_state():
-    """
-    Ensure test isolation by clearing all state before each test.
-    Note: Changed to sync fixture since TestClient is sync.
-    """
+    """Ensure test isolation."""
     app.dependency_overrides.clear()
     yield
     app.dependency_overrides.clear()
