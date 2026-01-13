@@ -8,11 +8,13 @@ from datetime import datetime, timedelta
 from unittest.mock import patch, AsyncMock
 from httpx import AsyncClient
 
+# FIXED: Use module-level asyncio marker instead of class decorators
+pytestmark = pytest.mark.asyncio
+
 # ============================================================================
 # INCIDENT CRUD TESTS
 # ============================================================================
 
-@pytest.mark.asyncio
 @pytest.mark.database
 class TestIncidentCRUD:
     """Test basic CRUD operations for incidents."""
@@ -144,7 +146,6 @@ class TestIncidentCRUD:
 # INCIDENT LISTING AND FILTERING TESTS
 # ============================================================================
 
-@pytest.mark.asyncio
 @pytest.mark.database
 class TestIncidentFiltering:
     """Test incident listing with filters and pagination."""
@@ -286,7 +287,6 @@ class TestIncidentFiltering:
 # INCIDENT WORKFLOW TESTS
 # ============================================================================
 
-@pytest.mark.asyncio
 class TestIncidentWorkflow:
     """Test incident state transitions and workflow."""
     
@@ -394,7 +394,6 @@ class TestIncidentWorkflow:
 # INCIDENT STATISTICS AND REPORTING TESTS
 # ============================================================================
 
-@pytest.mark.asyncio
 class TestIncidentStatistics:
     """Test incident statistics and reporting endpoints."""
     
@@ -460,7 +459,6 @@ class TestIncidentStatistics:
 # INTEGRATION TESTS
 # ============================================================================
 
-@pytest.mark.asyncio
 @pytest.mark.integration
 class TestIncidentIntegration:
     """Test incident integration with other systems."""
@@ -497,7 +495,6 @@ class TestIncidentIntegration:
 # ERROR AND EDGE CASE TESTS
 # ============================================================================
 
-@pytest.mark.asyncio
 class TestIncidentEdgeCases:
     """Test edge cases and error conditions."""
     
