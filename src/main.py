@@ -10,11 +10,14 @@ import os
 from datetime import datetime
 import logging
 
+# FIXED IMPORT ORDER: Try absolute import first (for tests), then relative import
 try:
-    from .api.v1 import incidents
-except ImportError:
-    # Fallback for when running tests or other cases
+    # For testing/development (when running from root or tests)
     from src.api.v1 import incidents
+except ImportError:
+    # For production/runtime (when running as module)
+    from .api.v1 import incidents
+    
 from .api.v1.webhooks import router as webhooks_router
 from .auth.router import router as auth_router
 from .api.v1.execution_ladder import router as execution_ladder_router
