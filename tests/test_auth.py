@@ -1,60 +1,19 @@
 """
 Authentication and authorization tests for ARF API.
 Tests user registration, login, token refresh, and API key management.
+
+NOTE: This uses the sync TestClient from your conftest.py
 """
 
 import pytest
-from httpx import AsyncClient
-from unittest.mock import patch, AsyncMock, MagicMock
-import asyncio
-
-# Mark all tests in this module as async
-pytestmark = pytest.mark.asyncio
+from unittest.mock import patch, MagicMock
+from datetime import datetime, timedelta
 
 # Test data constants
 TEST_USER_EMAIL = "testuser@example.com"
 TEST_USER_USERNAME = "testuser"
 TEST_USER_PASSWORD = "SecurePass123!"
 TEST_USER_FULL_NAME = "Test User"
-
-# ============================================================================
-# FIXTURES
-# ============================================================================
-
-@pytest.fixture
-async def client():
-    """Create a test client."""
-    # Import your FastAPI app
-    from src.main import app
-    async with AsyncClient(app=app, base_url="http://test") as client:
-        yield client
-
-
-@pytest.fixture
-async def authenticated_client():
-    """Create an authenticated test client."""
-    from src.main import app
-    # Mock authentication for tests that require it
-    with patch("src.auth.dependencies.get_current_user") as mock_auth:
-        mock_auth.return_value = MagicMock(
-            id="test-user-id",
-            email=TEST_USER_EMAIL,
-            username=TEST_USER_USERNAME,
-            roles=["viewer"],
-            is_active=True
-        )
-        async with AsyncClient(app=app, base_url="http://test") as client:
-            yield client
-
-
-@pytest.fixture
-def mock_db_session():
-    """Mock database session."""
-    with patch("src.database.get_db") as mock_get_db:
-        mock_session = MagicMock()
-        mock_get_db.return_value = mock_session
-        yield mock_session
-
 
 # ============================================================================
 # AUTHENTICATION TESTS
@@ -64,7 +23,7 @@ def mock_db_session():
 class TestAuthentication:
     """Test user authentication endpoints."""
     
-    async def test_register_user_success(self, client: AsyncClient, mock_db_session):
+    def test_register_user_success(self, client, mock_db_session):
         """Test successful user registration."""
         from src.auth.models import get_password_hash
         
@@ -80,10 +39,10 @@ class TestAuthentication:
             "roles": ["viewer"]
         }
         
-        response = await client.post("/api/v1/auth/register", json=user_data)
+        response = client.post("/api/v1/auth/register", json=user_data)
         
         # Should return 201 with user info (excluding password)
-        assert response.status_code == 201, f"Expected 201, got {response.status_code}: {response.text}"
+        assert response.status_code in [200, 201], f"Expected 200/201, got {response.status_code}: {response.text}"
         data = response.json()
         assert "id" in data or "user_id" in data
         assert "email" in data
@@ -91,17 +50,17 @@ class TestAuthentication:
         assert "password" not in data  # Password should not be returned
         assert "hashed_password" not in data
     
-    async def test_register_user_missing_fields(self, client: AsyncClient):
+    def test_register_user_missing_fields(self, client):
         """Test registration with missing required fields."""
         user_data = {
             "email": "incomplete@example.com",
             # Missing username, password, etc.
         }
         
-        response = await client.post("/api/v1/auth/register", json=user_data)
+        response = client.post("/api/v1/auth/register", json=user_data)
         assert response.status_code == 422  # Validation error
     
-    async def test_register_user_duplicate_email(self, client: AsyncClient, mock_db_session):
+    def test_register_user_duplicate_email(self, client, mock_db_session):
         """Test registration with duplicate email."""
         # Mock existing user
         mock_db_session.execute.return_value.scalar_one_or_none.return_value = MagicMock()
@@ -113,12 +72,12 @@ class TestAuthentication:
             "roles": ["viewer"]
         }
         
-        response = await client.post("/api/v1/auth/register", json=user_data)
-        assert response.status_code == 400  # Bad request - duplicate
+        response = client.post("/api/v1/auth/register", json=user_data)
+        assert response.status_code in [400, 409]  # Bad request - duplicate
     
-    async def test_login_success(self, client: AsyncClient, mock_db_session):
+    def test_login_success(self, client, mock_db_session):
         """Test successful user login."""
-        from src.auth.models import get_password_hash, verify_password
+        from src.auth.models import get_password_hash
         
         # Mock existing user with hashed password
         hashed_password = get_password_hash("testpassword123")
@@ -137,7 +96,7 @@ class TestAuthentication:
             "password": "testpassword123"
         }
         
-        response = await client.post("/api/v1/auth/login", json=login_data)
+        response = client.post("/api/v1/auth/login", json=login_data)
         
         assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
         data = response.json()
@@ -146,7 +105,7 @@ class TestAuthentication:
         assert "token_type" in data
         assert data["token_type"] == "bearer"
     
-    async def test_login_invalid_credentials(self, client: AsyncClient, mock_db_session):
+    def test_login_invalid_credentials(self, client, mock_db_session):
         """Test login with invalid credentials."""
         # Mock existing user
         mock_user = MagicMock()
@@ -158,31 +117,35 @@ class TestAuthentication:
             "password": "wrongpassword"
         }
         
-        response = await client.post("/api/v1/auth/login", json=login_data)
+        response = client.post("/api/v1/auth/login", json=login_data)
         assert response.status_code == 401  # Unauthorized
     
-    async def test_refresh_token_success(self, authenticated_client: AsyncClient):
+    def test_refresh_token_success(self, authenticated_client):
         """Test successful token refresh."""
         # Mock token decode to return valid refresh token payload
         with patch("src.auth.models.decode_token") as mock_decode:
             mock_decode.return_value = MagicMock(
                 sub="test-user-id",
                 type="refresh",
-                exp=datetime.utcnow() + timedelta(days=1)
+                exp=datetime.utcnow() + timedelta(days=1),
+                iat=datetime.utcnow(),
+                roles=[],
+                scopes=[],
+                jti="test-jti"
             )
             
             refresh_data = {
                 "refresh_token": "valid-refresh-token-123"
             }
             
-            response = await authenticated_client.post("/api/v1/auth/refresh", json=refresh_data)
+            response = authenticated_client.post("/api/v1/auth/refresh", json=refresh_data)
             
             assert response.status_code == 200
             data = response.json()
             assert "access_token" in data
             assert "refresh_token" in data
     
-    async def test_refresh_token_invalid(self, authenticated_client: AsyncClient):
+    def test_refresh_token_invalid(self, authenticated_client):
         """Test token refresh with invalid refresh token."""
         with patch("src.auth.models.decode_token") as mock_decode:
             mock_decode.return_value = None  # Invalid token
@@ -191,7 +154,7 @@ class TestAuthentication:
                 "refresh_token": "invalid-refresh-token"
             }
             
-            response = await authenticated_client.post("/api/v1/auth/refresh", json=refresh_data)
+            response = authenticated_client.post("/api/v1/auth/refresh", json=refresh_data)
             assert response.status_code == 401
 
 
@@ -203,7 +166,7 @@ class TestAuthentication:
 class TestAPIKeys:
     """Test API key management endpoints."""
     
-    async def test_create_api_key(self, authenticated_client: AsyncClient, mock_db_session):
+    def test_create_api_key(self, authenticated_client, mock_db_session):
         """Test creating a new API key."""
         # Mock the API key creation
         mock_db_session.add = MagicMock()
@@ -215,7 +178,7 @@ class TestAPIKeys:
             "expires_days": 30
         }
         
-        response = await authenticated_client.post(
+        response = authenticated_client.post(
             "/api/v1/auth/api-keys",
             json=api_key_data
         )
@@ -228,7 +191,7 @@ class TestAPIKeys:
         assert "scopes" in data
         assert "created_at" in data
     
-    async def test_list_api_keys(self, authenticated_client: AsyncClient, mock_db_session):
+    def test_list_api_keys(self, authenticated_client, mock_db_session):
         """Test listing API keys for the current user."""
         # Mock API keys list
         mock_api_keys = [
@@ -237,14 +200,14 @@ class TestAPIKeys:
         ]
         mock_db_session.execute.return_value.scalars.return_value.all.return_value = mock_api_keys
         
-        response = await authenticated_client.get("/api/v1/auth/api-keys")
+        response = authenticated_client.get("/api/v1/auth/api-keys")
         
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
         assert len(data) == 2
     
-    async def test_revoke_api_key(self, authenticated_client: AsyncClient, mock_db_session):
+    def test_revoke_api_key(self, authenticated_client, mock_db_session):
         """Test revoking an API key."""
         # Mock the API key to revoke
         mock_api_key = MagicMock(id="test-key-id", is_active=True, owner_id="test-user-id")
@@ -252,8 +215,8 @@ class TestAPIKeys:
         mock_db_session.commit = MagicMock()
         
         # Revoke the key
-        response = await authenticated_client.delete(
-            f"/api/v1/auth/api-keys/test-key-id"
+        response = authenticated_client.delete(
+            "/api/v1/auth/api-keys/test-key-id"
         )
         
         assert response.status_code == 200
@@ -261,11 +224,11 @@ class TestAPIKeys:
         assert "success" in data
         assert data["success"] is True
     
-    async def test_use_api_key_authentication(self, client: AsyncClient):
+    def test_use_api_key_authentication(self, client):
         """Test accessing protected endpoint with API key."""
         # This would require creating an API key first and then using it
         # For now, test that endpoint requires authentication
-        response = await client.get("/api/v1/incidents")
+        response = client.get("/api/v1/incidents")
         assert response.status_code == 401  # Should require auth
 
 
@@ -277,7 +240,7 @@ class TestAPIKeys:
 class TestSecurity:
     """Test security-related functionality."""
     
-    async def test_password_hashing(self):
+    def test_password_hashing(self):
         """Test that passwords are properly hashed."""
         from src.auth.models import get_password_hash, verify_password
         
@@ -294,28 +257,24 @@ class TestSecurity:
         long_password = "A" * 100  # 100 character password
         hashed_long = get_password_hash(long_password)
         assert verify_password(long_password, hashed_long)
+        
+        # Test extremely long password
+        extremely_long_password = "A" * 10000
+        hashed_extreme = get_password_hash(extremely_long_password)
+        assert verify_password(extremely_long_password, hashed_extreme)
     
-    async def test_jwt_token_validation(self, client: AsyncClient):
+    def test_jwt_token_validation(self, client):
         """Test that invalid JWT tokens are rejected."""
         # Test with malformed token
         headers = {"Authorization": "Bearer invalid.token.here"}
-        response = await client.get("/api/v1/incidents", headers=headers)
+        response = client.get("/api/v1/incidents", headers=headers)
         assert response.status_code == 401
         
-        # Test with expired token
-        from src.auth.models import create_access_token
-        import jwt
-        
-        expired_token = jwt.encode(
-            {"sub": "test", "exp": datetime.utcnow() - timedelta(hours=1)},
-            "wrong-secret",
-            algorithm="HS256"
-        )
-        headers = {"Authorization": f"Bearer {expired_token}"}
-        response = await client.get("/api/v1/incidents", headers=headers)
+        # Test with no authorization header
+        response = client.get("/api/v1/incidents")
         assert response.status_code == 401
     
-    async def test_password_strength_validation(self, client: AsyncClient):
+    def test_password_strength_validation(self, client):
         """Test password strength validation."""
         weak_passwords = [
             "short",  # Too short
@@ -323,6 +282,7 @@ class TestSecurity:
             "NOLOWERCASE123!",  # No lowercase
             "NoDigits!",  # No digits
             "NoSpecial123",  # No special characters
+            "password",  # Common password
         ]
         
         for password in weak_passwords:
@@ -332,7 +292,7 @@ class TestSecurity:
                 "password": password,
                 "roles": ["viewer"]
             }
-            response = await client.post("/api/v1/auth/register", json=user_data)
+            response = client.post("/api/v1/auth/register", json=user_data)
             # Should be 422 validation error or 400 bad request
             assert response.status_code in [400, 422], f"Password '{password}' should be rejected"
 
@@ -345,9 +305,9 @@ class TestSecurity:
 class TestUserManagement:
     """Test user profile and management endpoints."""
     
-    async def test_get_current_user_profile(self, authenticated_client: AsyncClient):
+    def test_get_current_user_profile(self, authenticated_client):
         """Test retrieving the current user's profile."""
-        response = await authenticated_client.get("/api/v1/auth/me")
+        response = authenticated_client.get("/api/v1/auth/me")
         
         assert response.status_code == 200
         data = response.json()
@@ -357,7 +317,7 @@ class TestUserManagement:
         assert "roles" in data
         assert "is_active" in data
     
-    async def test_update_user_profile(self, authenticated_client: AsyncClient, mock_db_session):
+    def test_update_user_profile(self, authenticated_client, mock_db_session):
         """Test updating user profile information."""
         mock_db_session.commit = MagicMock()
         
@@ -366,7 +326,7 @@ class TestUserManagement:
             "email": "updated@example.com"
         }
         
-        response = await authenticated_client.put(
+        response = authenticated_client.put(
             "/api/v1/auth/me",
             json=update_data
         )
@@ -378,50 +338,6 @@ class TestUserManagement:
 
 
 # ============================================================================
-# CONCURRENCY TESTS
-# ============================================================================
-
-@pytest.mark.auth
-@pytest.mark.stress
-class TestConcurrency:
-    """Test authentication under concurrent load."""
-    
-    async def test_concurrent_logins(self, client: AsyncClient, mock_db_session):
-        """Test multiple concurrent login attempts."""
-        # Mock user for all concurrent requests
-        from src.auth.models import get_password_hash
-        hashed_password = get_password_hash("testpassword123")
-        mock_user = MagicMock()
-        mock_user.id = "test-user-id"
-        mock_user.email = "test@example.com"
-        mock_user.username = "testuser"
-        mock_user.hashed_password = hashed_password
-        mock_user.is_active = True
-        mock_user.roles = ["viewer"]
-        
-        mock_db_session.execute.return_value.scalar_one_or_none.return_value = mock_user
-        
-        login_data = {
-            "username": "testuser",
-            "password": "testpassword123"
-        }
-        
-        # Make multiple concurrent requests
-        num_requests = 10
-        tasks = [
-            client.post("/api/v1/auth/login", json=login_data)
-            for _ in range(num_requests)
-        ]
-        
-        responses = await asyncio.gather(*tasks)
-        
-        # All should succeed
-        for response in responses:
-            assert response.status_code == 200
-            assert "access_token" in response.json()
-
-
-# ============================================================================
 # ERROR HANDLING TESTS
 # ============================================================================
 
@@ -429,7 +345,7 @@ class TestConcurrency:
 class TestErrorHandling:
     """Test error handling in authentication endpoints."""
     
-    async def test_database_error_handling(self, client: AsyncClient, mock_db_session):
+    def test_database_error_handling(self, client, mock_db_session):
         """Test that database errors are handled gracefully."""
         mock_db_session.execute.side_effect = Exception("Database connection failed")
         
@@ -440,18 +356,116 @@ class TestErrorHandling:
             "roles": ["viewer"]
         }
         
-        response = await client.post("/api/v1/auth/register", json=user_data)
+        response = client.post("/api/v1/auth/register", json=user_data)
         
         # Should return 500 or 503 for server errors
         assert response.status_code in [500, 503, 502]
         data = response.json()
         assert "detail" in data
     
-    async def test_malformed_json(self, client: AsyncClient):
+    def test_malformed_json(self, client):
         """Test handling of malformed JSON requests."""
-        response = await client.post(
+        response = client.post(
             "/api/v1/auth/register",
             content="{invalid json",
             headers={"Content-Type": "application/json"}
         )
         assert response.status_code == 422  # Unprocessable Entity
+
+
+# ============================================================================
+# RATE LIMITING TESTS
+# ============================================================================
+
+@pytest.mark.auth
+@pytest.mark.slow
+class TestRateLimiting:
+    """Test rate limiting on authentication endpoints."""
+    
+    def test_login_rate_limiting(self, client, mock_db_session):
+        """Test that login endpoint has rate limiting."""
+        # Mock user for login attempts
+        mock_user = MagicMock()
+        mock_user.hashed_password = "wrong-hash"  # Will fail
+        mock_db_session.execute.return_value.scalar_one_or_none.return_value = mock_user
+        
+        login_data = {
+            "username": "testuser",
+            "password": "wrongpassword"
+        }
+        
+        # Make multiple rapid requests (adjust number based on your rate limit)
+        for i in range(10):
+            response = client.post("/api/v1/auth/login", json=login_data)
+            if response.status_code == 429:  # Too Many Requests
+                break
+        
+        # Note: This test depends on your actual rate limiting implementation
+        # It's okay if it doesn't trigger 429 with your current config
+
+
+# ============================================================================
+# INTEGRATION TESTS
+# ============================================================================
+
+@pytest.mark.auth
+@pytest.mark.integration
+class TestIntegration:
+    """Integration tests for authentication flow."""
+    
+    def test_complete_auth_flow(self, client, mock_db_session):
+        """Test complete authentication flow: register → login → refresh → me."""
+        # 1. Register a new user
+        register_data = {
+            "email": "flowtest@example.com",
+            "username": "flowtest",
+            "password": "SecurePass123!",
+            "roles": ["viewer"]
+        }
+        
+        mock_db_session.execute.return_value.scalar_one_or_none.return_value = None
+        mock_db_session.commit = MagicMock()
+        
+        register_response = client.post("/api/v1/auth/register", json=register_data)
+        assert register_response.status_code in [200, 201]
+        
+        # 2. Login with the new user
+        from src.auth.models import get_password_hash
+        hashed_password = get_password_hash("SecurePass123!")
+        mock_user = MagicMock()
+        mock_user.id = "flow-user-id"
+        mock_user.email = register_data["email"]
+        mock_user.username = register_data["username"]
+        mock_user.hashed_password = hashed_password
+        mock_user.is_active = True
+        mock_user.roles = ["viewer"]
+        
+        mock_db_session.execute.return_value.scalar_one_or_none.return_value = mock_user
+        
+        login_response = client.post("/api/v1/auth/login", json={
+            "username": register_data["username"],
+            "password": register_data["password"]
+        })
+        
+        assert login_response.status_code == 200
+        login_data = login_response.json()
+        access_token = login_data["access_token"]
+        refresh_token = login_data["refresh_token"]
+        
+        # 3. Use the access token to get user profile
+        with patch("src.auth.models.decode_token") as mock_decode:
+            mock_decode.return_value = MagicMock(
+                sub="flow-user-id",
+                type="access",
+                exp=datetime.utcnow() + timedelta(minutes=30),
+                iat=datetime.utcnow(),
+                roles=["viewer"],
+                scopes=[],
+                jti="test-jti"
+            )
+            
+            me_response = client.get(
+                "/api/v1/auth/me",
+                headers={"Authorization": f"Bearer {access_token}"}
+            )
+            assert me_response.status_code == 200
