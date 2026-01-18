@@ -6,9 +6,8 @@ Intention: Clear separation between authentication data and business data.
 
 import uuid
 
-from sqlalchemy import Column, String, Boolean, DateTime, JSON, Index, text
+from sqlalchemy import Column, String, Boolean, DateTime, JSON, Index
 from sqlalchemy.sql import func
-from sqlalchemy.ext.declarative import declarative_base
 
 from src.database.postgres_client import Base
 
