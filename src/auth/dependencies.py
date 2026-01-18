@@ -3,18 +3,27 @@ Authentication dependencies for FastAPI.
 Psychology: Layered security - each dependency validates specific aspects.
 Intention: Provide granular control over endpoint protection.
 """
-from fastapi import Depends, HTTPException, status, Security
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, OAuth2PasswordBearer
-from typing import Optional, List
-from sqlalchemy.orm import Session
-from sqlalchemy import func  # FIX: Added missing import
 
-from src.database import get_db
+from typing import Optional, List
+
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, OAuth2PasswordBearer
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select
+
+from src.database.postgres_client import get_db
 from src.auth.models import (
-    decode_token, TokenPayload, TokenType, UserRole,
-    SECRET_KEY, ALGORITHM
+    decode_token,
+    TokenPayload,
+    TokenType,
+    UserRole,
+    JWT_SECRET_KEY,
+    ALGORITHM,
+    verify_api_key,
 )
 from src.auth.database_models import UserDB, APIKeyDB
+
 
 # Security schemes
 oauth2_scheme = OAuth2PasswordBearer(
@@ -28,62 +37,81 @@ api_key_scheme = HTTPBearer(
     description="API Key authentication"
 )
 
+
 class AuthError(Exception):
     """Custom authentication error"""
     def __init__(self, detail: str, status_code: int = status.HTTP_401_UNAUTHORIZED):
         self.detail = detail
         self.status_code = status_code
 
+
 # Dependency: Get current user from token
 async def get_current_user(
     token: Optional[str] = Depends(oauth2_scheme),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ) -> UserDB:
     """Get current user from JWT token"""
     if not token:
-        raise AuthError("Not authenticated")
-    
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
     payload = decode_token(token)
     if not payload or payload.type != TokenType.ACCESS:
-        raise AuthError("Invalid token")
-    
-    user = db.query(UserDB).filter(UserDB.id == payload.sub).first()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+    result = await db.execute(select(UserDB).where(UserDB.id == payload.sub))
+    user = result.scalars().first()
+
     if not user or not user.is_active:
-        raise AuthError("User not found or inactive")
-    
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+
     return user
+
 
 # Dependency: Get current user from API key
 async def get_current_user_from_api_key(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(api_key_scheme),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ) -> UserDB:
     """Get current user from API key"""
+
     if not credentials:
-        raise AuthError("API key required")
-    
-    # In production, hash the API key before lookup
-    api_key = db.query(APIKeyDB).filter(
-        APIKeyDB.key_hash == credentials.credentials,
-        APIKeyDB.is_active == True
-    ).first()
-    
-    if not api_key:
-        raise AuthError("Invalid API key")
-    
-    user = db.query(UserDB).filter(
-        UserDB.id == api_key.owner_id,
-        UserDB.is_active == True
-    ).first()
-    
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API key required")
+
+    # Lookup by prefix to reduce DB scan
+    api_key_prefix = credentials.credentials[:12]
+
+    result = await db.execute(
+        select(APIKeyDB).where(
+            APIKeyDB.key_prefix == api_key_prefix,
+            APIKeyDB.is_active == True
+        )
+    )
+    api_key_obj = result.scalars().first()
+
+    if not api_key_obj:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
+
+    # Verify hash
+    if not verify_api_key(credentials.credentials, api_key_obj.key_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
+
+    result = await db.execute(
+        select(UserDB).where(
+            UserDB.id == api_key_obj.owner_id,
+            UserDB.is_active == True
+        )
+    )
+    user = result.scalars().first()
+
     if not user:
-        raise AuthError("User not found")
-    
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
     # Update last used timestamp
-    api_key.last_used = func.now()
-    db.commit()
-    
+    api_key_obj.last_used = func.now()
+    await db.commit()
+
     return user
+
 
 # Role-based authorization dependencies
 def require_role(required_role: UserRole):
@@ -92,7 +120,7 @@ def require_role(required_role: UserRole):
         current_user: UserDB = Depends(get_current_user)
     ) -> UserDB:
         user_roles = [UserRole(role) for role in current_user.roles]
-        
+
         # Check if user has required role
         role_hierarchy = {
             UserRole.VIEWER: 0,
@@ -100,19 +128,20 @@ def require_role(required_role: UserRole):
             UserRole.ADMIN: 2,
             UserRole.SUPER_ADMIN: 3
         }
-        
+
         user_max_role = max([role_hierarchy.get(role, 0) for role in user_roles], default=0)
         required_level = role_hierarchy.get(required_role, 0)
-        
+
         if user_max_role < required_level:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Insufficient permissions. Required role: {required_role.value}"
             )
-        
+
         return current_user
-    
+
     return role_dependency
+
 
 # Convenience role dependencies
 require_viewer = require_role(UserRole.VIEWER)
@@ -120,11 +149,12 @@ require_operator = require_role(UserRole.OPERATOR)
 require_admin = require_role(UserRole.ADMIN)
 require_super_admin = require_role(UserRole.SUPER_ADMIN)
 
+
 # Flexible authentication dependency (accepts either JWT or API key)
 async def get_current_user_optional(
     token: Optional[str] = Depends(oauth2_scheme),
     api_key: Optional[HTTPAuthorizationCredentials] = Depends(api_key_scheme),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ) -> Optional[UserDB]:
     """Get current user from either JWT or API key (optional)"""
     try:
@@ -132,10 +162,11 @@ async def get_current_user_optional(
             return await get_current_user(token, db)
         elif api_key:
             return await get_current_user_from_api_key(api_key, db)
-    except AuthError:
-        pass
-    
+    except HTTPException:
+        return None
+
     return None
+
 
 # Public endpoint dependency (no auth required but validates if provided)
 async def get_optional_auth(
