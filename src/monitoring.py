@@ -10,6 +10,7 @@ import time
 from contextlib import asynccontextmanager
 import logging
 from functools import wraps
+import os
 
 from fastapi import FastAPI, Request, Response
 from fastapi.routing import APIRoute
@@ -33,8 +34,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ============================================================================
+
 # PROMETHEUS METRICS
-# ============================================================================
 
 # HTTP Metrics
 REQUEST_COUNT = Counter(
@@ -138,8 +139,8 @@ ERROR_COUNT = Counter(
 )
 
 # ============================================================================
+
 # MONITORING MIDDLEWARE - CORRECTED FOR PRODUCTION
-# ============================================================================
 
 class MonitoringMiddleware(BaseHTTPMiddleware):
     """
@@ -212,8 +213,8 @@ class MonitoringMiddleware(BaseHTTPMiddleware):
             REQUEST_IN_PROGRESS.labels(method=method, endpoint=endpoint).dec()
 
 # ============================================================================
+
 # DATABASE MONITORING
-# ============================================================================
 
 class DatabaseMonitor:
     """Monitor database operations with production reliability"""
@@ -406,8 +407,8 @@ class DatabaseMonitor:
             }
 
 # ============================================================================
+
 # CACHE MONITORING
-# ============================================================================
 
 class CacheMonitor:
     """Production-grade cache monitoring with detailed metrics"""
@@ -541,8 +542,8 @@ class CacheMonitor:
             }
 
 # ============================================================================
+
 # BUSINESS METRICS COLLECTION
-# ============================================================================
 
 class BusinessMetrics:
     """Production-grade business metrics with contextual tracking"""
@@ -647,8 +648,8 @@ class BusinessMetrics:
         )
 
 # ============================================================================
+
 # METRICS ENDPOINT WITH SECURITY
-# ============================================================================
 
 def setup_metrics_endpoint(app: FastAPI, require_auth: bool = True):
     """Setup secure metrics endpoint for Prometheus scraping"""
@@ -657,7 +658,6 @@ def setup_metrics_endpoint(app: FastAPI, require_auth: bool = True):
     async def metrics_endpoint(request: Request):
         """Secure Prometheus metrics endpoint"""
         if require_auth:
-            # Add authentication/authorization check
             api_key = request.headers.get("X-API-Key")
             if not api_key or api_key != os.getenv("METRICS_API_KEY"):
                 return Response(
@@ -709,8 +709,8 @@ def setup_metrics_endpoint(app: FastAPI, require_auth: bool = True):
         )
 
 # ============================================================================
+
 # ADVANCED HEALTH CHECKS WITH DEPENDENCY INJECTION
-# ============================================================================
 
 def setup_advanced_health_checks(app: FastAPI):
     """Setup production-grade health checks with dependency injection"""
@@ -721,7 +721,6 @@ def setup_advanced_health_checks(app: FastAPI):
     @app.get("/health/advanced", tags=["monitoring"])
     async def advanced_health():
         """Comprehensive health check for production monitoring"""
-        # Parallel health checks for performance
         import asyncio
         
         async def check_databases():
@@ -763,18 +762,17 @@ def setup_advanced_health_checks(app: FastAPI):
                 "cache": cache_stats
             },
             "performance": {
-                "request_rate_1m": "N/A",  # Implement rolling window
+                "request_rate_1m": "N/A",
                 "error_rate_1m": "N/A",
                 "avg_latency_1m": "N/A"
             },
-            "recommendations": []  # Add actionable insights
+            "recommendations": []
         }
     
     @app.get("/health/readiness", tags=["monitoring"])
     async def readiness_probe():
         """Kubernetes readiness probe with circuit breaker pattern"""
         try:
-            # Check critical dependencies with timeouts
             import asyncio
             
             async def check_postgres():
@@ -793,7 +791,6 @@ def setup_advanced_health_checks(app: FastAPI):
                     session.run("RETURN 1")
                     return True
             
-            # Run with timeout
             tasks = [
                 asyncio.wait_for(check_postgres(), timeout=2),
                 asyncio.wait_for(check_redis(), timeout=2),
@@ -801,8 +798,6 @@ def setup_advanced_health_checks(app: FastAPI):
             ]
             
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Check results
             healthy = all(isinstance(r, bool) and r for r in results)
             
             return {
@@ -825,7 +820,6 @@ def setup_advanced_health_checks(app: FastAPI):
     async def liveness_probe():
         """Kubernetes liveness probe with memory check"""
         import psutil
-        import os
         
         process = psutil.Process(os.getpid())
         memory_info = process.memory_info()
@@ -842,8 +836,8 @@ def setup_advanced_health_checks(app: FastAPI):
         }
 
 # ============================================================================
+
 # PERFORMANCE MONITORING WITH ALERTING
-# ============================================================================
 
 class PerformanceMonitor:
     """Production performance monitoring with alerting capabilities"""
@@ -874,35 +868,30 @@ class PerformanceMonitor:
             "status_code": status_code
         })
         
-        # Keep only recent data
         cutoff = timestamp - timedelta(seconds=self.window_size)
         self.metrics["endpoint_latency"][endpoint] = [
             m for m in self.metrics["endpoint_latency"][endpoint]
             if m["timestamp"] > cutoff
         ]
         
-        # Check for alerts
         self._check_alerts(endpoint)
     
     def _check_alerts(self, endpoint: str):
         """Check performance metrics against thresholds"""
         metrics = self.metrics["endpoint_latency"].get(endpoint, [])
-        if len(metrics) < 10:  # Need minimum data points
+        if len(metrics) < 10:
             return
         
         latencies = [m["latency"] for m in metrics]
         status_codes = [m["status_code"] for m in metrics]
         
-        # Calculate P95 latency
         sorted_latencies = sorted(latencies)
         p95_index = int(len(sorted_latencies) * 0.95)
         p95_latency = sorted_latencies[p95_index] if p95_index < len(sorted_latencies) else 0
         
-        # Calculate error rate
         error_count = sum(1 for sc in status_codes if sc >= 400)
         error_rate = error_count / len(status_codes) if status_codes else 0
         
-        # Check thresholds
         if p95_latency > self.alert_thresholds["p95_latency"]:
             self._trigger_alert(
                 endpoint=endpoint,
@@ -935,13 +924,11 @@ class PerformanceMonitor:
         
         self.alerts.append(alert)
         
-        # Log alert
         logger.warning(
             f"Performance alert: {alert['message']}",
             extra={"alert": alert}
         )
         
-        # Keep only recent alerts
         cutoff = datetime.utcnow() - timedelta(minutes=60)
         self.alerts = [
             a for a in self.alerts
@@ -954,7 +941,7 @@ class PerformanceMonitor:
             "timestamp": datetime.utcnow().isoformat(),
             "window_seconds": self.window_size,
             "endpoints": {},
-            "alerts": self.alerts[-10:],  # Last 10 alerts
+            "alerts": self.alerts[-10:],
             "summary": {
                 "total_endpoints_monitored": len(self.metrics["endpoint_latency"]),
                 "total_alerts_last_hour": len([a for a in self.alerts 
@@ -969,7 +956,6 @@ class PerformanceMonitor:
                 latencies = [m["latency"] for m in metrics]
                 status_codes = [m["status_code"] for m in metrics]
                 
-                # Calculate percentiles
                 sorted_latencies = sorted(latencies)
                 percentiles = {}
                 for p in [50, 75, 90, 95, 99]:
@@ -978,7 +964,6 @@ class PerformanceMonitor:
                         sorted_latencies[index] if index < len(sorted_latencies) else 0
                     )
                 
-                # Calculate rates
                 successful = sum(1 for sc in status_codes if 200 <= sc < 300)
                 error_rate = 1 - (successful / len(status_codes)) if status_codes else 0
                 
@@ -994,7 +979,6 @@ class PerformanceMonitor:
                     )
                 }
         
-        # Update overall status
         degraded_endpoints = sum(
             1 for ep in report["endpoints"].values()
             if ep["status"] == "degraded"
@@ -1007,8 +991,8 @@ class PerformanceMonitor:
         return report
 
 # ============================================================================
+
 # PRODUCTION INITIALIZATION
-# ============================================================================
 
 def setup_monitoring(app: FastAPI, enable_metrics: bool = True, enable_health: bool = True):
     """
@@ -1019,7 +1003,6 @@ def setup_monitoring(app: FastAPI, enable_metrics: bool = True, enable_health: b
         enable_metrics: Enable Prometheus metrics endpoint
         enable_health: Enable health check endpoints
     """
-    import os
     
     # Store start time
     app.state.start_time = datetime.utcnow()
@@ -1043,23 +1026,22 @@ def setup_monitoring(app: FastAPI, enable_metrics: bool = True, enable_health: b
     @app.on_event("startup")
     async def startup_event():
         version = getattr(app, 'version', '1.0.0')
-        logger.info(f"🚀 ARF API v{version} starting with production monitoring")
-        logger.info(f"📊 Metrics endpoint: /metrics {'(secured)' if enable_metrics else '(disabled)'}")
-        logger.info(f"🏥 Health checks: /health/* {'(enabled)' if enable_health else '(disabled)'}")
-        logger.info(f"⏱️  Performance monitoring: Active")
-        logger.info(f"🔒 Middleware: MonitoringMiddleware loaded")
+        logger.info(f"ARF API v{version} starting with production monitoring")
+        logger.info(f"Metrics endpoint: /metrics {'(secured)' if enable_metrics else '(disabled)'}")
+        logger.info(f"Health checks: /health/* {'(enabled)' if enable_health else '(disabled)'}")
+        logger.info(f"Performance monitoring: Active")
+        logger.info(f"Middleware: MonitoringMiddleware loaded")
     
     # Add shutdown cleanup
     @app.on_event("shutdown")
     async def shutdown_event():
-        logger.info("🛑 ARF API shutting down gracefully")
+        logger.info("ARF API shutting down gracefully")
         
-        # Generate final performance report
         try:
             if hasattr(app.state, 'performance_monitor'):
                 report = app.state.performance_monitor.get_performance_report()
                 logger.info(
-                    "📈 Final performance report",
+                    "Final performance report",
                     extra={"performance_report": report["summary"]}
                 )
         except Exception as e:
