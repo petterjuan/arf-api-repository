@@ -18,8 +18,6 @@ from src.auth.models import (
     TokenPayload,
     TokenType,
     UserRole,
-    JWT_SECRET_KEY,
-    ALGORITHM,
     verify_api_key,
 )
 from src.auth.database_models import UserDB, APIKeyDB
@@ -54,7 +52,7 @@ async def get_current_user(
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
-    payload = decode_token(token)
+    payload: Optional[TokenPayload] = decode_token(token)
     if not payload or payload.type != TokenType.ACCESS:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
@@ -159,9 +157,9 @@ async def get_current_user_optional(
     """Get current user from either JWT or API key (optional)"""
     try:
         if token:
-            return await get_current_user(token, db)
+            return await get_current_user(token=token, db=db)
         elif api_key:
-            return await get_current_user_from_api_key(api_key, db)
+            return await get_current_user_from_api_key(credentials=api_key, db=db)
     except HTTPException:
         return None
 
