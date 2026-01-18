@@ -28,6 +28,8 @@ from src.auth.models import (
     UserCreate,
     UserInDB,
     UserRole,
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    REFRESH_TOKEN_EXPIRE_DAYS,
     create_access_token,
     create_refresh_token,
     decode_token,
@@ -56,7 +58,7 @@ def _get_key_prefix(api_key: str) -> str:
 async def register_user(
     user_data: UserCreate,
     db: AsyncSession = Depends(get_db),
-    background_tasks: BackgroundTasks | None = None,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
     """Register a new user"""
     stmt = select(UserDB).where(UserDB.email == user_data.email)
