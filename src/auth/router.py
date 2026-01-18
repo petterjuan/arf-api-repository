@@ -11,7 +11,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.database_models import APIKeyDB, RefreshTokenDB, UserDB
@@ -58,7 +58,7 @@ def _get_key_prefix(api_key: str) -> str:
 async def register_user(
     user_data: UserCreate,
     db: AsyncSession = Depends(get_db),
-    background_tasks: BackgroundTasks = BackgroundTasks(),
+    background_tasks: BackgroundTasks = Depends(),  # FIXED
 ):
     """Register a new user"""
     stmt = select(UserDB).where(UserDB.email == user_data.email)
@@ -84,9 +84,8 @@ async def register_user(
     await db.commit()
     await db.refresh(db_user)
 
-    if background_tasks:
-        # background_tasks.add_task(send_verification_email, db_user.email)
-        pass
+    # Background tasks are injected properly now
+    # background_tasks.add_task(send_verification_email, db_user.email)
 
     return db_user
 
@@ -117,7 +116,6 @@ async def login(
     access_token = create_access_token(data={"sub": user.id, "roles": user.roles})
     refresh_token = create_refresh_token(data={"sub": user.id, "roles": user.roles})
 
-    # Store refresh token hash in DB (recommended)
     token_hash = get_password_hash(refresh_token)
     refresh_db = RefreshTokenDB(
         token_hash=token_hash,
@@ -148,7 +146,6 @@ async def refresh_token(
             detail="Invalid refresh token",
         )
 
-    # Validate token against DB and hash match
     stmt = select(RefreshTokenDB).where(
         RefreshTokenDB.user_id == payload.sub,
         RefreshTokenDB.is_revoked.is_(False),
