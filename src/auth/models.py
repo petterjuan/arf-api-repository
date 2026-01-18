@@ -87,13 +87,16 @@ class TokenPayload(BaseModel):
 
 class UserBase(BaseModel):
     email: EmailStr
-    username: str = Field(
-        ...,
+
+    # --- PATCH: make username optional ---
+    username: Optional[str] = Field(
+        None,
         min_length=3,
         max_length=50,
         pattern=r'^[a-zA-Z0-9_.-]+$',
         description="Username can contain letters, numbers, dots, dashes, and underscores"
     )
+
     full_name: Optional[str] = Field(None, max_length=100)
     is_active: bool = True
     roles: List[UserRole] = Field(default=[UserRole.VIEWER])
@@ -107,6 +110,13 @@ class UserBase(BaseModel):
         if '@' not in v:
             raise ValueError('Invalid email format')
         return v.lower().strip()
+
+    # --- PATCH: auto-fill username from email when missing ---
+    @model_validator(mode="after")
+    def ensure_username(self):
+        if not self.username:
+            self.username = self.email.split("@")[0]
+        return self
 
 
 class UserCreate(UserBase):
