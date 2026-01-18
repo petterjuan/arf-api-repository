@@ -16,6 +16,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.routing import APIRoute
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
+from starlette.concurrency import run_in_threadpool
 from prometheus_client import Counter, Histogram, Gauge, Summary, generate_latest, REGISTRY
 from prometheus_client.openmetrics.exposition import generate_latest as generate_latest_openmetrics
 import redis
@@ -342,10 +343,10 @@ class DatabaseMonitor:
             redis_client = get_redis()
             
             # Test connection and basic operations
-            redis_client.ping()
+            await run_in_threadpool(redis_client.ping)
             
             # Get detailed info
-            info = redis_client.info()
+            info = await run_in_threadpool(redis_client.info)
             latency = time.time() - start
             
             # Calculate hit rate if available
@@ -380,24 +381,13 @@ class DatabaseMonitor:
             driver = get_neo4j()
             
             # Use session context manager for proper cleanup
-            with driver.session() as session:
-                result = session.run("""
-                    RETURN 1 as healthy, 
-                           "Neo4j " + version() as version,
-                           size([(n) WHERE exists(n.id) | n]) as node_count,
-                           size([(r) WHERE exists(r.id) | r]) as relationship_count
-                """)
-                record = result.single()
-                latency = time.time() - start
-                
-                return {
-                    "status": "healthy" if record["healthy"] == 1 else "degraded",
-                    "latency_ms": round(latency * 1000, 2),
-                    "version": record["version"],
-                    "node_count": record["node_count"],
-                    "relationship_count": record["relationship_count"],
-                    "driver_status": "connected"
-                }
+            result = await run_in_threadpool(lambda: driver.session().run("RETURN 1 as healthy").single())
+            latency = time.time() - start
+            
+            return {
+                "status": "healthy" if result["healthy"] == 1 else "degraded",
+                "latency_ms": round(latency * 1000, 2)
+            }
         except Exception as e:
             logger.error(f"Neo4j health check failed: {e}")
             return {
@@ -473,7 +463,7 @@ class CacheMonitor:
     async def get_cache_stats(self) -> Dict[str, Any]:
         """Get comprehensive cache statistics with memory analysis"""
         try:
-            info = self.redis.info()
+            info = await run_in_threadpool(self.redis.info)
             
             # Detailed cache analysis
             cache_analysis = {}
@@ -481,7 +471,7 @@ class CacheMonitor:
             estimated_memory = 0
             
             for pattern in self.cache_patterns:
-                keys = list(self.redis.scan_iter(match=pattern, count=100))
+                keys = await run_in_threadpool(lambda: list(self.redis.scan_iter(match=pattern, count=100)))
                 key_count = len(keys)
                 
                 if key_count > 0:
@@ -491,9 +481,9 @@ class CacheMonitor:
                     
                     for key in sample_keys:
                         try:
-                            key_type = self.redis.type(key)
+                            key_type = await run_in_threadpool(lambda: self.redis.type(key))
                             if key_type == "string":
-                                pattern_memory += self.redis.memory_usage(key) or 100
+                                pattern_memory += await run_in_threadpool(lambda: self.redis.memory_usage(key)) or 100
                             elif key_type in ["hash", "list", "set", "zset"]:
                                 pattern_memory += 500  # Conservative estimate for complex types
                             else:
@@ -782,14 +772,13 @@ def setup_advanced_health_checks(app: FastAPI):
             
             async def check_redis():
                 redis_client = get_redis()
-                redis_client.ping()
+                await run_in_threadpool(redis_client.ping)
                 return True
             
             async def check_neo4j():
                 driver = get_neo4j()
-                with driver.session() as session:
-                    session.run("RETURN 1")
-                    return True
+                await run_in_threadpool(lambda: driver.session().run("RETURN 1").single())
+                return True
             
             tasks = [
                 asyncio.wait_for(check_postgres(), timeout=2),
