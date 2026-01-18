@@ -10,7 +10,17 @@ import base64
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from enum import Enum
-from pydantic import BaseModel, Field, EmailStr, validator, constr, root_validator
+
+from pydantic import (
+    BaseModel,
+    Field,
+    EmailStr,
+    ConfigDict,
+    field_validator,
+    model_validator,
+    constr
+)
+
 import jwt
 from passlib.context import CryptContext
 
@@ -69,20 +79,21 @@ class TokenPayload(BaseModel):
     iss: Optional[str] = "arf-api"  # Issuer
     aud: Optional[str] = "arf-client"  # Audience
 
-    class Config:
-        json_encoders = {
+    model_config = ConfigDict(
+        json_encoders={
             datetime: lambda v: int(v.timestamp())
         }
+    )
 
 
 class UserBase(BaseModel):
     """Base user model"""
     email: EmailStr
     username: str = Field(
-        ..., 
-        min_length=3, 
-        max_length=50, 
-        regex=r'^[a-zA-Z0-9_.-]+$',
+        ...,
+        min_length=3,
+        max_length=50,
+        pattern=r'^[a-zA-Z0-9_.-]+$',
         description="Username can contain letters, numbers, dots, dashes, and underscores"
     )
     full_name: Optional[str] = Field(None, max_length=100)
@@ -90,8 +101,11 @@ class UserBase(BaseModel):
     roles: List[UserRole] = Field(default=[UserRole.VIEWER])
     email_verified: bool = False
 
-    @validator('email')
-    def validate_email_domain(cls, v):
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_validator('email', mode='before')
+    @classmethod
+    def validate_email_domain(cls, v: str) -> str:
         """Basic email domain validation"""
         if '@' not in v:
             raise ValueError('Invalid email format')
@@ -103,38 +117,34 @@ class UserCreate(UserBase):
     """User creation model"""
     password: constr(min_length=MIN_PASSWORD_LENGTH, max_length=128)
     password_confirm: str
-    
-    @validator('password_confirm')
-    def passwords_match(cls, v, values, **kwargs):
-        """Validate that password and confirmation match"""
-        if 'password' in values and v != values['password']:
-            raise ValueError('Passwords do not match')
-        return v
-    
-    @validator('password')
-    def validate_password_strength(cls, v):
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_validator('password', mode='after')
+    @classmethod
+    def validate_password_strength(cls, v: str) -> str:
         """Ensure password meets security requirements"""
         errors = []
-        
+
         # Check length
         if len(v) < MIN_PASSWORD_LENGTH:
             errors.append(f'Password must be at least {MIN_PASSWORD_LENGTH} characters long')
-        
+
         # Check character composition
         if REQUIRE_UPPERCASE and not any(c.isupper() for c in v):
             errors.append('Password must contain at least one uppercase letter')
-        
+
         if REQUIRE_LOWERCASE and not any(c.islower() for c in v):
             errors.append('Password must contain at least one lowercase letter')
-        
+
         if REQUIRE_DIGITS and not any(c.isdigit() for c in v):
             errors.append('Password must contain at least one digit')
-        
+
         if REQUIRE_SPECIAL_CHARS:
             special_chars = '!@#$%^&*()_+-=[]{}|;:,.<>?`~'
             if not any(c in special_chars for c in v):
                 errors.append(f'Password must contain at least one special character: {special_chars}')
-        
+
         # Check for common weak passwords
         common_passwords = [
             'password', '12345678', 'qwertyui', 'admin123', 'letmein',
@@ -143,18 +153,25 @@ class UserCreate(UserBase):
         ]
         if v.lower() in common_passwords:
             errors.append('Password is too common and easily guessable')
-        
+
         # Check for sequential characters
         if any(str(i) * 3 in v for i in range(10)):
             errors.append('Password contains sequential numbers')
-        
+
         if any(c * 3 in v.lower() for c in 'abcdefghijklmnopqrstuvwxyz'):
             errors.append('Password contains sequential letters')
-        
+
         if errors:
             raise ValueError('; '.join(errors))
-        
+
         return v
+
+    @model_validator(mode="after")
+    def passwords_match(self):
+        """Validate that password and confirmation match"""
+        if self.password != self.password_confirm:
+            raise ValueError('Passwords do not match')
+        return self
 
 
 class UserInDB(UserBase):
@@ -170,11 +187,12 @@ class UserInDB(UserBase):
     mfa_secret: Optional[str] = None
     last_password_change: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
-        json_encoders = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={
             datetime: lambda v: v.isoformat()
         }
+    )
 
 
 class UserResponse(UserBase):
@@ -182,12 +200,13 @@ class UserResponse(UserBase):
     id: str
     created_at: datetime
     updated_at: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
-        json_encoders = {
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={
             datetime: lambda v: v.isoformat()
         }
+    )
 
 
 class Token(BaseModel):
@@ -226,11 +245,12 @@ class APIKeyInDB(APIKeyCreate):
     revoked_by: Optional[str] = None
     revoked_reason: Optional[str] = None
 
-    class Config:
-        from_attributes = True
-        json_encoders = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={
             datetime: lambda v: v.isoformat()
         }
+    )
 
 
 class APIKeyResponse(BaseModel):
@@ -246,17 +266,18 @@ class APIKeyResponse(BaseModel):
     last_used: Optional[datetime]
     is_active: bool
 
-    class Config:
-        json_encoders = {
+    model_config = ConfigDict(
+        json_encoders={
             datetime: lambda v: v.isoformat()
         }
+    )
 
 
 # Utility functions
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     Verify a plain password against a hash.
-    
+
     Uses constant-time comparison to prevent timing attacks.
     """
     try:
@@ -264,9 +285,8 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         password_bytes = plain_password.encode('utf-8')
         if len(password_bytes) > 72:
             # Pre-hash with SHA-256 to handle long passwords
-            # This is safe because bcrypt only accepts 72 bytes max
             password_bytes = hashlib.sha256(password_bytes).digest()
-        
+
         # Use constant-time verification
         return pwd_context.verify(password_bytes, hashed_password)
     except Exception:
@@ -279,20 +299,15 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     """
     Generate password hash with bcrypt handling long passwords.
-    
+
     For passwords longer than 72 bytes, we pre-hash with SHA-256
     to ensure compatibility with bcrypt's limitations.
     """
-    # Convert to bytes
     password_bytes = password.encode('utf-8')
-    
-    # If password is too long for bcrypt (72 bytes), pre-hash with SHA-256
+
     if len(password_bytes) > 72:
-        # Pre-hash with SHA-256 to handle long passwords
-        # Note: This is secure because SHA-256 is collision-resistant
         password_bytes = hashlib.sha256(password_bytes).digest()
-    
-    # Hash with bcrypt with production-appropriate work factor
+
     return pwd_context.hash(password_bytes)
 
 
@@ -306,38 +321,35 @@ def create_access_token(
     """Create JWT access token with production security features."""
     to_encode = data.copy()
     now = datetime.utcnow()
-    
+
     if expires_delta:
         expire = now + expires_delta
     else:
         expire = now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    
-    # Generate JTI (JWT ID) for token revocation if not provided
+
     token_jti = jti or secrets.token_urlsafe(32)
-    
+
     to_encode.update({
         "exp": expire,
         "iat": now,
-        "nbf": now,  # Not before
+        "nbf": now,
         "type": TokenType.ACCESS.value,
         "jti": token_jti,
         "iss": issuer or "arf-api",
         "aud": audience or "arf-client",
     })
-    
-    # Ensure subject is present
+
     if "sub" not in to_encode:
         raise ValueError("Token must have a subject (sub)")
-    
-    # Create token with algorithm specified
+
     return jwt.encode(
-        to_encode, 
-        JWT_SECRET_KEY, 
+        to_encode,
+        JWT_SECRET_KEY,
         algorithm=ALGORITHM,
         headers={
             "typ": "JWT",
             "alg": ALGORITHM,
-            "kid": "arf-1"  # Key ID for key rotation
+            "kid": "arf-1"
         }
     )
 
@@ -352,10 +364,9 @@ def create_refresh_token(
     to_encode = data.copy()
     now = datetime.utcnow()
     expire = now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    
-    # Generate JTI (JWT ID) for token revocation if not provided
+
     token_jti = jti or secrets.token_urlsafe(32)
-    
+
     to_encode.update({
         "exp": expire,
         "iat": now,
@@ -365,14 +376,13 @@ def create_refresh_token(
         "iss": issuer or "arf-api",
         "aud": audience or "arf-client",
     })
-    
-    # Ensure subject is present
+
     if "sub" not in to_encode:
         raise ValueError("Refresh token must have a subject (sub)")
-    
+
     return jwt.encode(
-        to_encode, 
-        JWT_SECRET_KEY, 
+        to_encode,
+        JWT_SECRET_KEY,
         algorithm=ALGORITHM,
         headers={
             "typ": "JWT",
@@ -385,101 +395,79 @@ def create_refresh_token(
 def decode_token(token: str, verify: bool = True) -> Optional[TokenPayload]:
     """
     Decode and validate JWT token with production-grade validation.
-    
+
     Args:
         token: JWT token string
         verify: Whether to verify the token signature and claims
-        
+
     Returns:
         TokenPayload if valid, None otherwise
     """
     try:
         if verify:
-            # Verify token signature and claims
             payload = jwt.decode(
-                token, 
-                JWT_SECRET_KEY, 
+                token,
+                JWT_SECRET_KEY,
                 algorithms=[ALGORITHM],
                 options={
                     "require": ["exp", "iat", "sub", "type", "jti"],
                     "verify_exp": True,
                     "verify_iat": True,
-                    "verify_nbf": False,  # nbf is optional
+                    "verify_nbf": False,
                 },
                 issuer="arf-api",
                 audience="arf-client",
-                leeway=30,  # 30 seconds leeway for clock skew
+                leeway=30,
             )
         else:
-            # Decode without verification (for debugging only)
             payload = jwt.decode(token, options={"verify_signature": False})
-        
-        # Convert timestamps to datetime objects
+
         if "exp" in payload:
             payload["exp"] = datetime.fromtimestamp(payload["exp"])
         if "iat" in payload:
             payload["iat"] = datetime.fromtimestamp(payload["iat"])
         if "nbf" in payload:
             payload["nbf"] = datetime.fromtimestamp(payload["nbf"])
-        
+
         return TokenPayload(**payload)
     except jwt.ExpiredSignatureError:
-        # Token has expired
         return None
-    except jwt.InvalidTokenError as e:
-        # Invalid token (signature, claims, etc.)
+    except jwt.InvalidTokenError:
         return None
     except Exception:
-        # Any other error
         return None
 
 
 def generate_api_key() -> str:
     """Generate a secure API key for production use."""
-    # Generate 32 bytes of cryptographically secure randomness
     key_bytes = secrets.token_bytes(32)
-    
-    # Encode in URL-safe base64 without padding
     key = base64.urlsafe_b64encode(key_bytes).decode('utf-8').rstrip('=')
-    
-    # Format with prefix for easy identification
     return f"arf_{key}"
 
 
 def hash_api_key(api_key: str) -> str:
     """Hash an API key for secure storage using SHA-256."""
-    # Use a pepper from the secret key for additional security
     pepper = JWT_SECRET_KEY[:16] if JWT_SECRET_KEY else "arf-api-pepper"
     api_key_with_pepper = api_key + pepper
-    
-    # Hash with SHA-256
     return hashlib.sha256(api_key_with_pepper.encode('utf-8')).hexdigest()
 
 
 def verify_api_key(plain_key: str, hashed_key: str) -> bool:
     """Verify an API key against its hash using constant-time comparison."""
     try:
-        # Recreate the pepper
         pepper = JWT_SECRET_KEY[:16] if JWT_SECRET_KEY else "arf-api-pepper"
         api_key_with_pepper = plain_key + pepper
-        
-        # Compute hash
         computed_hash = hashlib.sha256(api_key_with_pepper.encode('utf-8')).hexdigest()
-        
-        # Use constant-time comparison
         return secrets.compare_digest(computed_hash, hashed_key)
     except Exception:
-        # Always return False on any error
         return False
 
 
 def get_api_key_prefix(api_key: str) -> str:
     """Get the prefix of an API key for display purposes."""
     if api_key.startswith("arf_"):
-        # Return first 8 chars after prefix
-        return api_key[:12]  # arf_ + 8 chars
+        return api_key[:12]
     else:
-        # Return first 8 chars
         return api_key[:8]
 
 
@@ -487,7 +475,7 @@ def create_password_reset_token(user_id: str, expires_minutes: int = 15) -> str:
     """Create a password reset token."""
     now = datetime.utcnow()
     expire = now + timedelta(minutes=expires_minutes)
-    
+
     payload = {
         "sub": user_id,
         "exp": expire,
@@ -497,10 +485,10 @@ def create_password_reset_token(user_id: str, expires_minutes: int = 15) -> str:
         "iss": "arf-api",
         "aud": "arf-client",
     }
-    
+
     return jwt.encode(
-        payload, 
-        JWT_SECRET_KEY, 
+        payload,
+        JWT_SECRET_KEY,
         algorithm=ALGORITHM,
         headers={
             "typ": "JWT",
@@ -514,7 +502,7 @@ def create_email_verification_token(user_id: str, email: str, expires_hours: int
     """Create an email verification token."""
     now = datetime.utcnow()
     expire = now + timedelta(hours=expires_hours)
-    
+
     payload = {
         "sub": user_id,
         "email": email,
@@ -525,10 +513,10 @@ def create_email_verification_token(user_id: str, email: str, expires_hours: int
         "iss": "arf-api",
         "aud": "arf-client",
     }
-    
+
     return jwt.encode(
-        payload, 
-        JWT_SECRET_KEY, 
+        payload,
+        JWT_SECRET_KEY,
         algorithm=ALGORITHM,
         headers={
             "typ": "JWT",
