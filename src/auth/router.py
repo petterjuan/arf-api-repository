@@ -4,7 +4,8 @@ Psychology: RESTful design with clear error responses and security best practice
 Intention: Provide full authentication lifecycle management.
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta
+import secrets
 import uuid
 from typing import List, Optional
 
@@ -15,7 +16,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.database_models import APIKeyDB, RefreshTokenDB, UserDB
 from src.auth.dependencies import (
-    AuthError,
     require_admin,
     require_operator,
     require_viewer,
@@ -39,10 +39,17 @@ from src.database import get_db
 router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
 
 
-# Helper function to generate API key
 def generate_api_key() -> str:
-    """Generate a secure API key"""
-    return f"arf_{uuid.uuid4().hex}_{uuid.uuid4().hex[:8]}"
+    """Generate a secure API key (random + high entropy)."""
+    key_bytes = secrets.token_urlsafe(32)
+    return f"arf_{key_bytes}"
+
+
+def _get_key_prefix(api_key: str) -> str:
+    """Get prefix for API key lookups."""
+    if api_key.startswith("arf_"):
+        return api_key[:12]
+    return api_key[:8]
 
 
 @router.post("/register", response_model=UserInDB, status_code=status.HTTP_201_CREATED)
@@ -66,7 +73,7 @@ async def register_user(
         email=user_data.email,
         full_name=user_data.full_name,
         hashed_password=get_password_hash(user_data.password),
-        roles=user_data.roles,
+        roles=[role.value for role in user_data.roles],
         is_active=True,
         is_verified=False,
     )
@@ -102,7 +109,7 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user.last_login = func.now()
+    user.last_login = datetime.utcnow()
     await db.commit()
 
     access_token = create_access_token(data={"sub": user.id, "roles": user.roles})
@@ -113,15 +120,16 @@ async def login(
     refresh_db = RefreshTokenDB(
         token_hash=token_hash,
         user_id=user.id,
-        expires_at=func.now() + timedelta(days=30),
+        expires_at=datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
     )
+
     db.add(refresh_db)
     await db.commit()
 
     return Token(
         access_token=access_token,
         refresh_token=refresh_token,
-        expires_in=30 * 60,
+        expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
 
 
@@ -138,10 +146,11 @@ async def refresh_token(
             detail="Invalid refresh token",
         )
 
-    # Validate token against DB
+    # Validate token against DB and hash match
     stmt = select(RefreshTokenDB).where(
         RefreshTokenDB.user_id == payload.sub,
         RefreshTokenDB.is_revoked.is_(False),
+        RefreshTokenDB.expires_at > datetime.utcnow(),
     )
     result = await db.execute(stmt)
     token_record = result.scalar_one_or_none()
@@ -152,13 +161,20 @@ async def refresh_token(
             detail="Refresh token revoked or not found",
         )
 
+    if not verify_password(refresh_token, token_record.token_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token mismatch",
+        )
+
     access_token = create_access_token(
         data={"sub": payload.sub, "roles": payload.roles}
     )
 
     return Token(
         access_token=access_token,
-        expires_in=30 * 60,
+        refresh_token=refresh_token,
+        expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
 
 
@@ -171,9 +187,7 @@ async def create_api_key(
     """Create a new API key"""
     raw_key = generate_api_key()
     key_hash = get_password_hash(raw_key)
-
-    # Extract prefix for lookup
-    key_prefix = raw_key.split("_")[-2] if "_" in raw_key else raw_key[:8]
+    key_prefix = _get_key_prefix(raw_key)
 
     db_api_key = APIKeyDB(
         name=api_key_data.name,
@@ -181,11 +195,9 @@ async def create_api_key(
         key_prefix=key_prefix,
         owner_id=current_user.id,
         scopes=api_key_data.scopes,
-        expires_at=(
-            func.now() + timedelta(days=api_key_data.expires_days)
-            if api_key_data.expires_days
-            else None
-        ),
+        expires_at=datetime.utcnow() + timedelta(days=api_key_data.expires_days)
+        if api_key_data.expires_days
+        else None,
     )
 
     db.add(db_api_key)
@@ -301,7 +313,7 @@ async def update_user_roles(
         )
 
     user.roles = [role.value for role in roles]
-    user.updated_at = func.now()
+    user.updated_at = datetime.utcnow()
     await db.commit()
 
     return {"message": "User roles updated successfully"}
