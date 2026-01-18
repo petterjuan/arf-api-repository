@@ -9,7 +9,7 @@ import secrets
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,8 +57,8 @@ def _get_key_prefix(api_key: str) -> str:
 @router.post("/register", response_model=UserInDB, status_code=status.HTTP_201_CREATED)
 async def register_user(
     user_data: UserCreate,
-    db: AsyncSession = Depends(get_db),
     background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
 ):
     """Register a new user"""
     stmt = select(UserDB).where(UserDB.email == user_data.email)
