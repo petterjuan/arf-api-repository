@@ -1,7 +1,7 @@
 """
-Main application with authentication, execution ladder, rollback, and monitoring integrated.
+Main application with authentication, execution ladder, rollback, monitoring, and ENTERPRISE authority integration.
 Psychology: Unified reliability platform with progressive enhancement and comprehensive observability.
-Intention: Complete system for incident prevention, management, recovery, observability, and notifications.
+Intention: Complete system for incident prevention, management, recovery, observability, notifications, and mechanical enforcement.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,14 +9,17 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 import os
 from datetime import datetime
 import logging
+from contextlib import asynccontextmanager
 
-# FIXED IMPORT ORDER: Try absolute import first (for tests), then relative import
+# Try absolute import first (for tests), then relative import
 try:
     # For testing/development (when running from root or tests)
     from src.api.v1 import incidents
+    from src.api.v1 import authority as authority_router
 except ImportError:
     # For production/runtime (when running as module)
     from .api.v1 import incidents
+    from .api.v1 import authority as authority_router
     
 from .api.v1.webhooks import router as webhooks_router
 from .auth.router import router as auth_router
@@ -30,6 +33,9 @@ from .database import engine, Base, init_databases
 from .monitoring import setup_monitoring, BusinessMetrics, DatabaseMonitor, PerformanceMonitor
 from .middleware.logging import StructuredLoggingMiddleware, BusinessEventLogger
 
+# Import service integration
+from .services import get_edition, is_enterprise_available
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -38,20 +44,69 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Only create tables if we're not in validation mode and not testing
-if not os.getenv("VALIDATION_MODE") and not os.getenv("TESTING"):
-    try:
-        Base.metadata.create_all(bind=engine)
-        logger.info("✅ Database tables created/verified")
-    except Exception as e:
-        logger.warning(f"⚠️ Could not create database tables (may be intentional): {e}")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for startup/shutdown events.
+    """
+    # Startup
+    edition = get_edition()
+    logger.info(f"Starting ARF API - Edition: {edition.upper()}")
+    
+    # Store startup time
+    app.state.start_time = datetime.utcnow()
+    
+    # Initialize databases only if not in validation mode
+    if not os.getenv("VALIDATION_MODE"):
+        init_databases()
+        
+        # Create tables if not in testing mode
+        if not os.getenv("TESTING"):
+            try:
+                Base.metadata.create_all(bind=engine)
+                logger.info("✅ Database tables created/verified")
+            except Exception as e:
+                logger.warning(f"⚠️ Could not create database tables (may be intentional): {e}")
+    
+    # Check Enterprise features
+    if edition == "enterprise":
+        if is_enterprise_available("execution_authority"):
+            logger.info("✅ Enterprise execution authority service available - mechanical enforcement active")
+        else:
+            logger.warning("⚠️ Enterprise edition but execution authority service unavailable")
+    else:
+        logger.info("🔓 OSS mode - Enterprise features unavailable")
+    
+    yield
+    
+    # Shutdown
+    logger.info("🛑 ARF API shutting down gracefully")
+    
+    # Log business event
+    BusinessEventLogger.log_event(
+        event_type="application_shutdown",
+        event_data={
+            "uptime_seconds": (datetime.utcnow() - app.state.start_time).total_seconds() 
+            if hasattr(app.state, 'start_time') else 0
+        },
+        user_id="system"
+    )
+
 
 app = FastAPI(
     title="ARF API",
-    version="1.4.0",  # Updated version for webhook feature
-    description="""Agentic Reliability Framework API - Complete System Reliability Platform with Observability
+    version="3.0.0",  # Major version update for Enterprise integration
+    description="""Agentic Reliability Framework API - Complete System Reliability Platform with Observability & Mechanical Enforcement
     
 ## 🔥 Core Reliability Features:
+
+### 🏢 **ENTERPRISE EXECUTION AUTHORITY** (NEW in v3.0)
+- **Mechanical enforcement** of escalation gates with code-level validation
+- **License-gated execution modes** (OSS → Starter → Professional → Enterprise)
+- **Deterministic confidence scoring** with evidence-based validation
+- **Risk-aware automation** with blast radius assessment
+- **Complete audit trails** for all enforcement decisions
 
 ### 🔐 **Authentication & Authorization**
 - JWT-based authentication with refresh tokens
@@ -82,7 +137,7 @@ app = FastAPI(
 - Comprehensive rollback dashboard and analytics
 - Automated rollback verification
 
-### 🔔 **Webhook & Notification System** (NEW)
+### 🔔 **Webhook & Notification System**
 - Multi-channel notifications (Slack, Teams, Email, Discord, PagerDuty, OpsGenie)
 - Event-driven architecture with guaranteed delivery
 - Template management with variable substitution
@@ -96,7 +151,7 @@ app = FastAPI(
 - Structured JSON logging with correlation IDs
 - Comprehensive health checks with readiness/liveness probes
 - Performance monitoring (p50, p95, p99 latencies)
-- Business metrics tracking (incidents, policies, rollbacks, notifications)
+- Business metrics tracking (incidents, policies, rollbacks, notifications, authority evaluations)
 - Database and cache performance metrics
 - Grafana dashboard integration
 - Alertmanager integration for notifications
@@ -110,10 +165,43 @@ app = FastAPI(
 - Rate limiting (coming soon)
 - IP whitelisting (coming soon)
 
+## 🎯 **Execution Authority Features** (Enterprise):
+
+### **Mechanical Escalation Gates:**
+1. **LICENSE_VALIDATION** - Check enterprise license tier and features
+2. **CONFIDENCE_THRESHOLD** - Minimum confidence score (default: 0.8)
+3. **RISK_ASSESSMENT** - Evaluate blast radius and dangerous patterns
+4. **ROLLBACK_FEASIBILITY** - Ensure actions can be rolled back
+5. **HUMAN_APPROVAL_REQUIRED** - Flag for high-risk operations
+6. **ADMIN_APPROVAL** - Administrative approval gates
+7. **NOVEL_ACTION_REVIEW** - Experimental action review boards
+
+### **License Tier Mappings:**
+- **OSS**: advisory only (recommendations)
+- **Starter**: advisory + approval (human approval required)
+- **Professional**: advisory + approval + autonomous (low-risk automation)
+- **Enterprise**: all modes including novel_execution (full mechanical enforcement)
+
+### **Deterministic Confidence Engine:**
+- Evidence completeness scoring
+- Historical success weighting
+- Component familiarity assessment
+- Parameter validation scoring
+- Contextual certainty evaluation
+- Reproducible, auditable results
+
+### **Risk Assessment:**
+- Blast radius quantification
+- Dangerous pattern detection
+- Business hour constraints
+- Rollback feasibility analysis
+- Compliance violation checking
+- Real-time impact assessment
+
 ## 🏗️ **System Architecture:**
 - **PostgreSQL**: Primary data store for incidents, users, and rollback logs
 - **Neo4j**: Graph database for execution ladder policies and relationships
-- **Redis**: Caching layer for performance + rollback action storage
+- **Redis**: Caching layer for performance + rollback action storage + license caching
 - **FastAPI**: Modern, fast API framework with async support
 - **Docker**: Containerized deployment with health checks
 - **Prometheus**: Metrics collection and alerting
@@ -121,12 +209,14 @@ app = FastAPI(
 - **Loki**: Log aggregation and querying
 
 ## 📈 **Business Value:**
-- **Prevention**: Proactive policy enforcement via execution ladder
+- **Monetization**: License-gated execution authority with clear upgrade paths
+- **Prevention**: Mechanical enforcement prevents unsafe execution
 - **Detection**: Real-time incident monitoring and alerting
 - **Response**: Efficient incident management and collaboration
 - **Communication**: Multi-channel notifications for team coordination
 - **Recovery**: Reliable rollback capabilities for system restoration
-- **Improvement**: Data-driven insights from comprehensive metrics
+- **Auditability**: Tamper-evident audit trails for compliance
+- **Scalability**: Enterprise-grade performance (<100ms overhead)
 
 ## 🔧 **Development & Deployment:**
 - Complete CI/CD pipeline with GitHub Actions
@@ -135,6 +225,28 @@ app = FastAPI(
 - Environment-based configuration management
 - Multi-stage Docker builds
 - Health checks and graceful shutdown
+- Multi-tenant ready architecture
+
+## 🚀 **Getting Started:**
+
+### For OSS Users:
+1. Register and login to get authentication tokens
+2. Use execution ladder for policy-based recommendations
+3. Monitor incidents and set up notifications
+4. Implement rollback strategies for recovery
+
+### For Enterprise Users:
+1. Configure license key (`ARF_LICENSE_KEY`)
+2. Enable mechanical enforcement (`ENABLE_MECHANICAL_ENFORCEMENT=true`)
+3. Evaluate execution authority at `/api/v1/authority/evaluate`
+4. Check license entitlements at `/api/v1/authority/license`
+5. Use pre-flight checks at `/api/v1/authority/preflight` for debugging
+6. Monitor mechanical gate performance and audit trails
+
+### Upgrade Paths:
+- OSS → Starter: Enable human approval workflows
+- Starter → Professional: Enable autonomous execution
+- Professional → Enterprise: Enable novel action protocols and full mechanical enforcement
 """,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -152,6 +264,10 @@ app = FastAPI(
             "description": "Execution ladder and policy management (Graph-based decision making)"
         },
         {
+            "name": "execution-authority",
+            "description": "Mechanical execution authority with license-gated enforcement (Enterprise)"
+        },
+        {
             "name": "rollback",
             "description": "Rollback capabilities and system recovery operations"
         },
@@ -165,13 +281,13 @@ app = FastAPI(
         }
     ],
     contact={
-        "name": "ARF Development Team",
+        "name": "ARF Enterprise Development Team",
         "url": "https://github.com/petterjuan/arf-api-repository",
-        "email": "petter@example.com",
+        "email": "enterprise@arf.dev",
     },
     license_info={
-        "name": "MIT",
-        "url": "https://opensource.org/licenses/MIT",
+        "name": "Commercial Enterprise License",
+        "url": "https://arf.dev/license",
     },
     # OpenAPI customization
     servers=[
@@ -189,12 +305,13 @@ app = FastAPI(
         }
     ],
     # API metadata
-    terms_of_service="https://arf.example.com/terms/",
+    terms_of_service="https://arf.dev/terms/",
     # External documentation
     external_docs={
-        "description": "ARF API Documentation",
-        "url": "https://docs.arf.example.com",
-    }
+        "description": "ARF Enterprise Documentation",
+        "url": "https://docs.arf.dev",
+    },
+    lifespan=lifespan,
 )
 
 # Security middleware
@@ -204,7 +321,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Request-ID", "X-Response-Time", "X-Total-Count"]
+    expose_headers=["X-Request-ID", "X-Response-Time", "X-Total-Count", "X-Edition", "X-Execution-Mode"]
 )
 
 # Trusted hosts middleware (production only)
@@ -228,6 +345,7 @@ app.state.performance_monitor = performance_monitor
 app.include_router(auth_router)
 app.include_router(incidents.router)
 app.include_router(execution_ladder_router)
+app.include_router(authority_router.router)  # NEW: Execution authority endpoints
 app.include_router(rollback_router)
 app.include_router(webhooks_router)
 
@@ -247,16 +365,28 @@ async def root():
     except:
         redis_memory = 'unknown'
     
+    # Get edition and enterprise status
+    edition = get_edition()
+    enterprise_available = edition == "enterprise"
+    
     return {
         "service": "ARF API",
-        "version": "1.4.0",
+        "version": "3.0.0",
         "status": "running",
         "environment": os.getenv("ENVIRONMENT", "development"),
-        "edition": os.getenv("ARF_EDITION", "oss"),
+        "edition": edition,
+        "enterprise": {
+            "available": enterprise_available,
+            "authority_service": is_enterprise_available("execution_authority"),
+            "license_manager": is_enterprise_available("license_manager"),
+            "audit_trail": is_enterprise_available("audit_trail"),
+            "mechanical_enforcement": os.getenv("ENABLE_MECHANICAL_ENFORCEMENT", "false").lower() == "true"
+        },
         "architecture": {
             "authentication": "enabled",
             "incident_management": "enabled", 
             "execution_ladder": "enabled",
+            "execution_authority": "enabled" if enterprise_available else "oss_only",
             "rollback_capabilities": "enabled",
             "monitoring_observability": "enabled",
             "webhook_notifications": "enabled",
@@ -267,16 +397,36 @@ async def root():
             }
         },
         "capabilities": {
-            "prevention": "Execution ladder policies",
+            "monetization": "License-gated execution authority" if enterprise_available else "OSS only",
+            "prevention": "Mechanical enforcement" if enterprise_available else "Policy recommendations",
             "detection": "Incident monitoring + metrics",
             "response": "Incident management + alerting",
             "communication": "Webhook notifications",
             "recovery": "Rollback operations",
-            "observability": "Metrics, logs, tracing"
+            "observability": "Metrics, logs, tracing",
+            "auditability": "Tamper-evident audit trails" if enterprise_available else "Basic logging"
+        },
+        "license_tiers": {
+            "oss": "Advisory recommendations only",
+            "starter": "Human approval required",
+            "professional": "Autonomous low-risk execution",
+            "enterprise": "Full mechanical enforcement including novel actions"
+        } if enterprise_available else {
+            "oss": "Open source - advisory only"
         },
         "resources": {
             "redis_memory": redis_memory,
-            "startup_time": app.state.start_time.isoformat() if hasattr(app.state, 'start_time') else "unknown"
+            "startup_time": app.state.start_time.isoformat() if hasattr(app.state, 'start_time') else "unknown",
+            "edition": edition,
+            "mechanical_gates": [
+                "license_validation",
+                "confidence_threshold", 
+                "risk_assessment",
+                "rollback_feasibility",
+                "human_approval_required",
+                "admin_approval",
+                "novel_action_review"
+            ] if enterprise_available else []
         },
         "documentation": {
             "swagger_ui": "/docs",
@@ -289,6 +439,7 @@ async def root():
             "authentication": "/api/v1/auth",
             "incidents": "/api/v1/incidents", 
             "execution_ladder": "/api/v1/execution-ladder",
+            "execution_authority": "/api/v1/authority",
             "rollback": "/api/v1/rollback",
             "webhooks": "/api/v1/webhooks",
             "health": {
@@ -296,12 +447,14 @@ async def root():
                 "detailed": "/health/detailed",
                 "advanced": "/health/advanced",
                 "readiness": "/health/readiness",
-                "liveness": "/health/liveness"
+                "liveness": "/health/liveness",
+                "authority": "/api/v1/authority/health"
             },
             "monitoring": {
                 "metrics": "/metrics",
                 "openmetrics": "/metrics/openmetrics",
-                "performance": "/monitoring/performance"
+                "performance": "/monitoring/performance",
+                "metrics_summary": "/monitoring/metrics/summary"
             },
             "api_info": "/api/info",
             "system_status": "/status"
@@ -324,21 +477,25 @@ async def health():
     if os.getenv("VALIDATION_MODE"):
         return {
             "status": "healthy (validation mode)",
-            "edition": os.getenv("ARF_EDITION", "oss"),
-            "version": "1.4.0",
+            "edition": get_edition(),
+            "version": "3.0.0",
             "mode": "validation",
             "timestamp": datetime.utcnow().isoformat()
         }
     
+    # Get edition
+    edition = get_edition()
+    
     # Normal health check
     return {
         "status": "healthy",
-        "edition": os.getenv("ARF_EDITION", "oss"),
-        "version": "1.4.0",
+        "edition": edition,
+        "version": "3.0.0",
         "features": {
             "authentication": "enabled",
             "incident_management": "enabled",
             "execution_ladder": "enabled",
+            "execution_authority": "enabled" if edition == "enterprise" else "oss_only",
             "rollback": "enabled",
             "monitoring": "enabled",
             "webhooks": "enabled"
@@ -367,9 +524,11 @@ async def detailed_health():
     from .database.neo4j_client import driver as neo4j_driver
     from sqlalchemy import text
     
+    edition = get_edition()
     health_status = {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
+        "edition": edition,
         "services": {},
         "features": {}
     }
@@ -444,8 +603,8 @@ async def detailed_health():
     
     # Feature health checks (skip in validation mode)
     if not os.getenv("TESTING"):
+        # Check execution ladder service
         try:
-            # Check execution ladder service
             from .services.neo4j_service import get_execution_ladder_service
             ladder_service = get_execution_ladder_service()
             with ladder_service.driver.session() as session:
@@ -462,8 +621,8 @@ async def detailed_health():
                 "error": str(e)
             }
         
+        # Check rollback service
         try:
-            # Check rollback service
             from .services.rollback_service import get_rollback_service
             rollback_service = get_rollback_service()
             # Simple test - log a test action
@@ -482,6 +641,36 @@ async def detailed_health():
             health_status["features"]["rollback"] = {
                 "status": "degraded",
                 "error": str(e)
+            }
+        
+        # Check execution authority service (Enterprise only)
+        if edition == "enterprise" and is_enterprise_available("execution_authority"):
+            try:
+                from .api.v1.authority import get_authority_service
+                authority_service = get_authority_service()
+                
+                # Test authority service
+                if hasattr(authority_service, 'edition'):
+                    health_status["features"]["execution_authority"] = {
+                        "status": "operational",
+                        "edition": authority_service.edition,
+                        "mechanical_enforcement": getattr(authority_service, 'enable_mechanical_enforcement', False),
+                        "license_caching": hasattr(authority_service, 'redis_client') and authority_service.redis_client is not None
+                    }
+                else:
+                    health_status["features"]["execution_authority"] = {
+                        "status": "degraded",
+                        "error": "Authority service not properly initialized"
+                    }
+            except Exception as e:
+                health_status["features"]["execution_authority"] = {
+                    "status": "degraded",
+                    "error": str(e)
+                }
+        else:
+            health_status["features"]["execution_authority"] = {
+                "status": "oss_mode",
+                "message": "Enterprise features not available"
             }
         
         # Check webhook service
@@ -523,6 +712,59 @@ async def detailed_health():
     
     return health_status
 
+@app.get("/health/advanced")
+async def advanced_health():
+    """Advanced health check with configuration details"""
+    edition = get_edition()
+    enterprise_available = edition == "enterprise"
+    
+    base_health = await detailed_health()
+    
+    # Add configuration details
+    config_details = {
+        "environment": os.getenv("ENVIRONMENT", "development"),
+        "edition": edition,
+        "mechanical_enforcement_enabled": os.getenv("ENABLE_MECHANICAL_ENFORCEMENT", "false").lower() == "true",
+        "default_execution_mode": os.getenv("DEFAULT_EXECUTION_MODE", "approval"),
+        "min_confidence_threshold": float(os.getenv("MIN_CONFIDENCE_THRESHOLD", "0.8")),
+        "max_risk_tolerance": float(os.getenv("MAX_RISK_TOLERANCE", "0.3")),
+        "license_cache_ttl": int(os.getenv("ARF_ENTERPRISE_LICENSE_CACHE_TTL", "300")),
+        "redis_url": os.getenv("ARF_ENTERPRISE_REDIS_URL", os.getenv("REDIS_URL", "redis://localhost:6379/0")),
+        "authority_timeout_ms": int(os.getenv("AUTHORITY_EVALUATION_TIMEOUT_MS", "5000")),
+        "audit_encryption": bool(os.getenv("ARF_ENTERPRISE_AUDIT_ENCRYPTION_KEY")),
+    }
+    
+    # Add license tier features if available
+    if enterprise_available:
+        try:
+            from .api.v1.authority import get_authority_service
+            authority_service = get_authority_service()
+            
+            # Get license entitlements
+            entitlements = await authority_service.get_license_entitlements("system")
+            config_details["license_entitlements"] = entitlements.get("available_modes", [])
+            config_details["license_valid"] = entitlements.get("valid", False)
+            config_details["license_tier"] = entitlements.get("tier", "unknown")
+            
+        except Exception as e:
+            config_details["license_entitlements_error"] = str(e)
+    
+    return {
+        **base_health,
+        "configuration": config_details,
+        "system": {
+            "python_version": os.sys.version,
+            "platform": os.sys.platform,
+            "hostname": os.uname().nodename if hasattr(os, 'uname') else "unknown",
+            "process_id": os.getpid(),
+            "startup_time": app.state.start_time.isoformat() if hasattr(app.state, 'start_time') else "unknown",
+            "uptime_seconds": (
+                (datetime.utcnow() - app.state.start_time).total_seconds() 
+                if hasattr(app.state, 'start_time') else 0
+            )
+        }
+    }
+
 @app.get("/health/readiness")
 async def readiness_probe():
     """Kubernetes readiness probe - check critical dependencies"""
@@ -563,12 +805,26 @@ async def readiness_probe():
     except Exception as e:
         checks.append({"service": "neo4j", "status": "not_ready", "error": str(e)})
     
+    # Check execution authority service if Enterprise
+    edition = get_edition()
+    if edition == "enterprise" and is_enterprise_available("execution_authority"):
+        try:
+            from .api.v1.authority import get_authority_service
+            authority_service = get_authority_service()
+            # Simple test - get license info
+            if hasattr(authority_service, 'get_license_info'):
+                await authority_service.get_license_info("system:readiness")
+            checks.append({"service": "execution_authority", "status": "ready", "edition": edition})
+        except Exception as e:
+            checks.append({"service": "execution_authority", "status": "not_ready", "error": str(e)})
+    
     # Determine overall status
     all_ready = all(check["status"] == "ready" for check in checks)
     
     return {
         "status": "ready" if all_ready else "not_ready",
         "timestamp": datetime.utcnow().isoformat(),
+        "edition": edition,
         "checks": checks
     }
 
@@ -578,6 +834,7 @@ async def liveness_probe():
     return {
         "status": "alive",
         "timestamp": datetime.utcnow().isoformat(),
+        "edition": get_edition(),
         "uptime_seconds": (
             (datetime.utcnow() - app.state.start_time).total_seconds() 
             if hasattr(app.state, 'start_time') else 0
@@ -592,6 +849,23 @@ async def liveness_probe():
 async def get_performance_report():
     """Get performance monitoring report"""
     report = performance_monitor.get_performance_report()
+    
+    # Add execution authority metrics if available
+    edition = get_edition()
+    if edition == "enterprise":
+        try:
+            from .api.v1.authority import get_authority_service
+            authority_service = get_authority_service()
+            
+            # Add authority service metrics
+            report["execution_authority"] = {
+                "edition": getattr(authority_service, 'edition', 'unknown'),
+                "mechanical_enforcement": getattr(authority_service, 'enable_mechanical_enforcement', False),
+                "gate_validators_available": len(getattr(authority_service, '_gate_validators', {})),
+                "license_cache_enabled": hasattr(authority_service, 'redis_client') and authority_service.redis_client is not None,
+            }
+        except Exception as e:
+            report["execution_authority_error"] = str(e)
     
     # Add system info (skip in validation mode)
     if not os.getenv("VALIDATION_MODE"):
@@ -628,14 +902,17 @@ async def get_metrics_summary():
     
     metrics_text = output.getvalue()
     
-    # Parse for summary (simplified)
+    # Parse for summary
+    edition = get_edition()
     summary = {
         "total_metrics": len(list(REGISTRY.collect())),
         "http_metrics": 0,
         "business_metrics": 0,
         "system_metrics": 0,
         "webhook_metrics": 0,
+        "authority_metrics": 0,
         "timestamp": datetime.utcnow().isoformat(),
+        "edition": edition,
         "mode": "validation" if os.getenv("VALIDATION_MODE") else "normal"
     }
     
@@ -644,6 +921,8 @@ async def get_metrics_summary():
             summary["http_metrics"] += 1
         elif any(x in line for x in ['incident', 'policy', 'rollback']):
             summary["business_metrics"] += 1
+        elif any(x in line for x in ['authority', 'license', 'gate', 'confidence']):
+            summary["authority_metrics"] += 1
         elif any(x in line for x in ['webhook', 'notification', 'integration']):
             summary["webhook_metrics"] += 1
         elif any(x in line for x in ['memory', 'cpu', 'disk', 'uptime']):
@@ -658,13 +937,18 @@ async def get_metrics_summary():
 @app.get("/api/info")
 async def api_info():
     """Get detailed API information and capabilities"""
-    return {
+    edition = get_edition()
+    enterprise_available = edition == "enterprise"
+    
+    api_info = {
         "api": {
             "name": "ARF API",
-            "version": "1.4.0",
+            "version": "3.0.0",
             "description": "Agentic Reliability Framework API",
             "specification": "OpenAPI 3.0",
-            "schema_version": "1.0"
+            "schema_version": "3.0",
+            "edition": edition,
+            "enterprise_features": enterprise_available
         },
         "authentication": {
             "methods": ["JWT", "API Key"],
@@ -687,6 +971,20 @@ async def api_info():
                 "endpoints": ["/api/v1/execution-ladder"],
                 "features": ["policy management", "graph operations", "real-time evaluation", "decision tracing", "path analysis", "dependency mapping"]
             },
+            "execution_authority": {
+                "description": "Mechanical enforcement with license-gated execution modes (Enterprise)",
+                "endpoints": ["/api/v1/authority"],
+                "features": [
+                    "license validation",
+                    "deterministic confidence scoring", 
+                    "risk assessment with blast radius",
+                    "mechanical escalation gates",
+                    "audit trails",
+                    "pre-flight checks",
+                    "license entitlements"
+                ] if enterprise_available else ["OSS mode - advisory only"],
+                "enterprise": enterprise_available
+            },
             "rollback": {
                 "description": "System recovery and action reversal",
                 "endpoints": ["/api/v1/rollback"],
@@ -703,6 +1001,27 @@ async def api_info():
                 "features": ["prometheus metrics", "structured logging", "health checks", "performance monitoring", "business metrics"]
             }
         },
+        "execution_authority_details": {
+            "mechanical_gates": [
+                "license_validation",
+                "confidence_threshold", 
+                "risk_assessment",
+                "rollback_feasibility",
+                "human_approval_required",
+                "admin_approval",
+                "novel_action_review"
+            ] if enterprise_available else ["Not available in OSS mode"],
+            "license_tiers": {
+                "oss": "Advisory recommendations only",
+                "starter": "Human approval required",
+                "professional": "Autonomous low-risk execution",
+                "enterprise": "Full mechanical enforcement including novel actions"
+            } if enterprise_available else {"oss": "Open source - advisory only"},
+            "performance": "<100ms overhead per evaluation",
+            "auditability": "Tamper-evident audit trails"
+        } if enterprise_available else {
+            "message": "Enterprise execution authority requires commercial license"
+        },
         "database": {
             "primary": {
                 "type": "PostgreSQL",
@@ -717,7 +1036,7 @@ async def api_info():
             "cache": {
                 "type": "Redis",
                 "version": "7+",
-                "features": ["in-memory data store", "pub/sub", "transactions"]
+                "features": ["in-memory data store", "pub/sub", "transactions", "license caching"]
             }
         },
         "notification_channels": {
@@ -729,18 +1048,24 @@ async def api_info():
             "opsgenie": "Alerting and on-call management"
         },
         "reliability_patterns": {
-            "prevention": "Execution ladder policies with conditional evaluation",
+            "prevention": "Execution ladder policies with mechanical enforcement" if enterprise_available else "Execution ladder policies with conditional evaluation",
             "detection": "Incident monitoring + real-time metrics + alerting",
             "communication": "Multi-channel notifications for team coordination",
             "response": "Incident management with collaboration tools",
             "recovery": "Rollback capabilities with verification",
-            "observability": "Three pillars: metrics, logs, traces"
+            "observability": "Three pillars: metrics, logs, traces",
+            "auditability": "Complete audit trails for compliance" if enterprise_available else "Basic operation logging"
         },
         "deployment": {
             "containerization": "Docker with multi-stage builds",
             "orchestration": "Docker Compose for development, Kubernetes ready",
             "ci_cd": "GitHub Actions with automated testing",
-            "monitoring_stack": "Prometheus, Grafana, Loki, Alertmanager"
+            "monitoring_stack": "Prometheus, Grafana, Loki, Alertmanager",
+            "enterprise_requirements": {
+                "license_key": "ARF_LICENSE_KEY environment variable",
+                "redis": "Required for license caching",
+                "configuration": "ENABLE_MECHANICAL_ENFORCEMENT=true"
+            } if enterprise_available else {}
         },
         "links": {
             "documentation": {
@@ -752,14 +1077,17 @@ async def api_info():
             "issue_tracker": "https://github.com/petterjuan/arf-api-repository/issues",
             "wiki": "https://github.com/petterjuan/arf-api-repository/wiki",
             "health": "/health",
-            "metrics": "/metrics"
+            "metrics": "/metrics",
+            "enterprise_docs": "https://docs.arf.dev/enterprise" if enterprise_available else None
         },
         "support": {
             "community": "GitHub Discussions",
-            "commercial": "contact@arf.example.com",
-            "sla": "Available for enterprise edition"
+            "commercial": "enterprise@arf.dev",
+            "sla": "Available for enterprise edition" if enterprise_available else "Community support"
         }
     }
+    
+    return api_info
 
 @app.get("/status")
 async def system_status():
@@ -770,19 +1098,24 @@ async def system_status():
     if os.getenv("VALIDATION_MODE"):
         return {
             "system": {
-                "version": "1.4.0",
+                "version": "3.0.0",
                 "environment": os.getenv("ENVIRONMENT", "development"),
-                "edition": os.getenv("ARF_EDITION", "oss"),
+                "edition": get_edition(),
                 "mode": "validation",
                 "timestamp": datetime.utcnow().isoformat()
             },
             "message": "Running in validation mode - limited functionality"
         }
     
+    # Get edition
+    edition = get_edition()
+    enterprise_available = edition == "enterprise"
+    
     # Get basic counts
     postgres_count = 0
     redis_info = {}
     neo4j_count = 0
+    authority_stats = {}
     
     try:
         # PostgreSQL count
@@ -813,14 +1146,34 @@ async def system_status():
     except:
         pass
     
+    # Get authority service stats if available
+    if enterprise_available and is_enterprise_available("execution_authority"):
+        try:
+            from .api.v1.authority import get_authority_service
+            authority_service = get_authority_service()
+            
+            # Get license info
+            entitlements = await authority_service.get_license_entitlements("system")
+            authority_stats = {
+                "license_tier": entitlements.get("tier", "unknown"),
+                "license_valid": entitlements.get("valid", False),
+                "available_modes": entitlements.get("available_modes", []),
+                "edition": getattr(authority_service, 'edition', 'unknown'),
+                "mechanical_enforcement": getattr(authority_service, 'enable_mechanical_enforcement', False),
+            }
+        except Exception as e:
+            authority_stats = {"error": str(e)}
+    
     # Get performance data
     perf_report = performance_monitor.get_performance_report()
     
     return {
         "system": {
-            "version": "1.4.0",
+            "version": "3.0.0",
             "environment": os.getenv("ENVIRONMENT", "development"),
-            "edition": os.getenv("ARF_EDITION", "oss"),
+            "edition": edition,
+            "enterprise_features": enterprise_available,
+            "mechanical_enforcement": os.getenv("ENABLE_MECHANICAL_ENFORCEMENT", "false").lower() == "true",
             "startup_time": app.state.start_time.isoformat() if hasattr(app.state, 'start_time') else "unknown",
             "uptime_seconds": (
                 (datetime.utcnow() - app.state.start_time).total_seconds() 
@@ -832,6 +1185,7 @@ async def system_status():
             "neo4j_nodes": neo4j_count,
             "redis_connections": redis_info.get('connected_clients', 0)
         },
+        "execution_authority": authority_stats,
         "performance": {
             "endpoints_monitored": len(perf_report.get("endpoints", {})),
             "average_latency_ms": sum(
@@ -869,74 +1223,10 @@ async def get_incidents_unsecured():
     }
 
 # ============================================================================
-# APPLICATION LIFECYCLE EVENTS
+# STARTUP LOGGING (Moved from on_event to lifespan startup)
 # ============================================================================
 
-@app.on_event("startup")
-async def startup_event():
-    """Application startup event"""
-    # Initialize databases only if not in validation mode
-    if not os.getenv("VALIDATION_MODE"):
-        init_databases()
-    
-    logger.info(f"""
-    ╔══════════════════════════════════════════════════════════════╗
-    ║                    ARF API v1.4.0 Starting                   ║
-    ╠══════════════════════════════════════════════════════════════╣
-    ║  Environment: {os.getenv('ENVIRONMENT', 'development'):<49} ║
-    ║  Edition: {os.getenv('ARF_EDITION', 'oss'):<52} ║
-    ║  Mode: {os.getenv('VALIDATION_MODE', 'normal'):<54} ║
-    ║  Host: {os.getenv('HOST', '0.0.0.0'):<55} ║
-    ║  Port: {os.getenv('PORT', '8000'):<55} ║
-    ╠══════════════════════════════════════════════════════════════╣
-    ║  Core Features:                                              ║
-    ║    • 🔐 Authentication & Authorization                       ║
-    ║    • 🚨 Incident Management                                  ║
-    ║    • 🪜 Execution Ladder (Policy Engine)                     ║
-    ║    • 🔄 Rollback Capabilities                                ║
-    ║    • 📊 Monitoring & Observability                           ║
-    ║    • 🔔 Webhook Notifications                                ║
-    ╠══════════════════════════════════════════════════════════════╣
-    ║  Documentation:                                              ║
-    ║    • Swagger UI: http://{os.getenv('HOST', '0.0.0.0')}:{os.getenv('PORT', '8000')}/docs ║
-    ║    • ReDoc: http://{os.getenv('HOST', '0.0.0.0')}:{os.getenv('PORT', '8000')}/redoc ║
-    ║    • OpenAPI: http://{os.getenv('HOST', '0.0.0.0')}:{os.getenv('PORT', '8000')}/openapi.json ║
-    ╠══════════════════════════════════════════════════════════════╣
-    ║  Monitoring Endpoints:                                       ║
-    ║    • Prometheus: http://{os.getenv('HOST', '0.0.0.0')}:{os.getenv('PORT', '8000')}/metrics ║
-    ║    • OpenMetrics: http://{os.getenv('HOST', '0.0.0.0')}:{os.getenv('PORT', '8000')}/metrics/openmetrics ║
-    ║    • Health: http://{os.getenv('HOST', '0.0.0.0')}:{os.getenv('PORT', '8000')}/health/advanced ║
-    ║    • Readiness: http://{os.getenv('HOST', '0.0.0.0')}:{os.getenv('PORT', '8000')}/health/readiness ║
-    ║    • Liveness: http://{os.getenv('HOST', '0.0.0.0')}:{os.getenv('PORT', '8000')}/health/liveness ║
-    ╚══════════════════════════════════════════════════════════════╝
-    """)
-    
-    # Log business event
-    BusinessEventLogger.log_event(
-        event_type="application_startup",
-        event_data={
-            "version": "1.4.0",
-            "environment": os.getenv("ENVIRONMENT", "development"),
-            "edition": os.getenv("ARF_EDITION", "oss"),
-            "mode": os.getenv("VALIDATION_MODE", "normal")
-        },
-        user_id="system"
-    )
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Application shutdown event"""
-    logger.info("ARF API shutting down gracefully")
-    
-    # Log business event
-    BusinessEventLogger.log_event(
-        event_type="application_shutdown",
-        event_data={
-            "uptime_seconds": (datetime.utcnow() - app.state.start_time).total_seconds() 
-            if hasattr(app.state, 'start_time') else 0
-        },
-        user_id="system"
-    )
+# Note: Startup logging is now handled in the lifespan context manager
 
 # ============================================================================
 # MAIN ENTRY POINT
@@ -949,9 +1239,6 @@ if __name__ == "__main__":
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", 8000))
     reload = os.getenv("ENVIRONMENT") == "development"
-    
-    # Store startup time
-    app.state.start_time = datetime.utcnow()
     
     uvicorn.run(
         app, 
